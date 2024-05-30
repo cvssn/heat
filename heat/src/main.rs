@@ -1,15 +1,46 @@
-use std::fs;
-
 use fs::OpenOptions;
-use gpui::platform::{current as platform, App as _};
+use gpui::{
+    executor,
+    geometry::{rect::RectF, vector::vec2f},
+    platform::{current as platform, App as _, Runner as _, WindowOptions}
+};
 use log::LevelFilter;
 use simplelog::SimpleLogger;
+use std::{fs, mem, rc::Rc, sync::Arc};
 
 fn main() {
     init_logger();
 
-    platform::app()
-        .on_finish_launching(|| log::info!("finalizando lançamento"))
+    let platform = Arc::new(platform::app());
+
+    let foreground = Rc::new(
+        executor::Foreground::platform(platform.dispatcher())
+            .expect("o foreground não conseguiu criar o executor")
+    );
+
+    platform::runner()
+        .on_finish_launching(move || {
+            log::info!("lançamento finalizado");
+            
+            if stdout_is_a_pty() {
+                platform.activate(true);
+            }
+
+            let window = platform
+                .open_window(
+                    WindowOptions {
+                        bounds: RectF::new(vec2f(0., 0.), vec2f(1024., 768.)),
+                        title: Some("Heat")
+                    },
+
+                    foreground
+                )
+                
+                .expect("erro ao abrir a janela");
+
+            mem::forget(window); // vazar janela por agora para não fechar
+        })
+
         .run();
 }
 

@@ -8,7 +8,7 @@ use std::{
 use tree_sitter::{Language, Node, Parser};
 
 extern "C" {
-    fn tree_sitter_zed_context_predicate() -> Language;
+    fn tree_sitter_heat_context_predicate() -> Language;
 }
 
 pub struct Matcher {
@@ -267,7 +267,7 @@ impl Context {
 impl ContextPredicate {
     fn parse(source: &str) -> anyhow::Result<Self> {
         let mut parser = Parser::new();
-        let language = unsafe { tree_sitter_zed_context_predicate() };
+        let language = unsafe { tree_sitter_heat_context_predicate() };
 
         parser.set_language(language).unwrap();
         
