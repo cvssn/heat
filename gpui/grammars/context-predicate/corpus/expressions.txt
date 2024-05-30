@@ -1,0 +1,49 @@
+=======================
+identificadores
+=======================
+
+abc12
+
+---
+
+(source (identifier))
+
+=======================
+negação
+=======================
+
+!abc
+
+---
+
+(source (not (identifier)))
+
+=======================
+e/ou
+=======================
+
+a || b && c && d
+
+---
+
+(source
+    (or
+        (identifier)
+        (and
+            (and (identifier) (identifier))
+            (identifier))))
+
+=======================
+expressões
+=======================
+
+a && (b == c || d != e)
+
+---
+
+(source
+    (and
+        (identifier)
+        (parenthesized (or
+            (equal (identifier) (identifier))
+            (not_equal (identifier) (identifier))))))
