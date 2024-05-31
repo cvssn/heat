@@ -1428,7 +1428,7 @@ mod tests {
         App::test(|mut app| async move {
             let buffer = app.add_model(|_| Buffer::new(0, "aaaaaa\nbbbbbb\ncccccc\ndddddd\n"));
 
-            let settings = settings::channel(&FontCache::new()).1;
+            let settings = settings::channel(&FontCache::new()).unwrap().1;
 
             let (_, buffer_view) = app.add_window(|ctx| BufferView::for_buffer(buffer, settings, ctx));
 
@@ -1663,7 +1663,7 @@ mod tests {
         let mut app = App::new().unwrap();
         let buffer = app.add_model(|_| Buffer::new(0, sample_text(6, 6)));
 
-        let settings = settings::channel(&FontCache::new()).1;
+        let settings = settings::channel(&FontCache::new()).unwrap().1;
         let (_, view) = app.add_window(|ctx| BufferView::for_buffer(buffer.clone(), settings, ctx));
 
         buffer.update(&mut app, |buffer, ctx| {
