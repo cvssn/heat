@@ -256,7 +256,6 @@ impl App {
         read(state.view(handle), state.ctx())
     }
 
-    #[cfg(test)]
     pub fn finish_pending_tasks(&self) -> impl Future<Output = ()> {
         self.0.borrow().finish_pending_tasks()
     }
@@ -1188,7 +1187,6 @@ impl MutableAppContext {
             .detach()
     }
 
-    #[cfg(test)]
     pub fn finish_pending_tasks(&self) -> impl Future<Output = ()> {
         let mut pending_tasks = self.task_callbacks.keys().cloned().collect::<HashSet<_>>();
         let task_done = self.task_done.1.clone();
