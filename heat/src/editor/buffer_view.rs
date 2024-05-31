@@ -1212,7 +1212,7 @@ impl BufferView {
 
         let epoch = self.next_blink_epoch();
 
-        let _ = ctx.spawn_local(
+        let _ = ctx.spawn(
             async move {
                 Timer::after(CURSOR_BLINK_INTERVAL).await;
 
@@ -1239,7 +1239,7 @@ impl BufferView {
 
             let epoch = self.next_blink_epoch();
 
-            let _ = ctx.spawn_local(
+            let _ = ctx.spawn(
                 async move {
                     Timer::after(CURSOR_BLINK_INTERVAL).await;
 

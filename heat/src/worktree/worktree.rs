@@ -66,18 +66,21 @@ impl Worktree {
             let tree = tree.clone();
             let (tx, rx) = smol::channel::bounded(1);
 
-            ctx.background_executor()
-                .spawn(async move {
-                    tx.send(tree.scan_dirs()).await.unwrap();
-                }).detach();
+            let task = ctx.background_executor().spawn(async move {
+                let _ = tx.send(tree.scan_dirs()?).await;
 
-            let _ = ctx.spawn_local(async move { rx.recv().await.unwrap() }, Self::done_scanning);
+                Ok(())
+            });
 
-            let _ = ctx.spawn_stream_local(
+            ctx.spawn(task, Self::done_scanning).detach();
+
+            ctx.spawn_stream(
                 timer::repeat(Duration::from_millis(100)).map(|_| ()),
 
-                Self::scanning
-            );
+                Self::scanning,
+
+                |_, _| {}
+            ).detach();
         }
 
         tree
@@ -385,7 +388,7 @@ impl Worktree {
         }
     }
 
-    fn scanning(&mut self, _: Option<()>, ctx: &mut ModelContext<Self>) {
+    fn scanning(&mut self, _: (), ctx: &mut ModelContext<Self>) {
         if self.0.read().scanning {
             ctx.notify();
         } else {
@@ -394,6 +397,8 @@ impl Worktree {
     }
 
     fn done_scanning(&mut self, result: io::Result<()>, ctx: &mut ModelContext<Self>) {
+        log::info!("digitalização concluída");
+
         self.0.write().scanning = false;
 
         if let Err(error) = result {

@@ -1,6 +1,6 @@
 use crate::{
     elements::Element,
-    executor::{self},
+    executor::{self, ForegroundTask},
     keymap::{self, Keystroke},
     platform::{self, App as _},
     util::post_inc
@@ -29,7 +29,6 @@ pub trait Entity: 'static + Send + Sync {
 
 pub trait View: Entity {
     fn ui_name() -> &'static str;
-
     fn render<'a>(&self, app: &AppContext) -> Box<dyn Element>;
 
     fn on_focus(&mut self, _ctx: &mut ViewContext<Self>) {}
@@ -54,8 +53,10 @@ pub trait ModelAsRef {
 
 pub trait UpdateModel {
     fn update_model<T, F, S>(&mut self, handle: &ModelHandle<T>, update: F) -> S
-    
-    where T: Entity, F: FnOnce(&mut T, &mut ModelContext<T>) -> S;
+    where
+        T: Entity,
+
+        F: FnOnce(&mut T, &mut ModelContext<T>) -> S;
 }
 
 pub trait ViewAsRef {
@@ -64,15 +65,16 @@ pub trait ViewAsRef {
 
 pub trait UpdateView {
     fn update_view<T, F, S>(&mut self, handle: &ViewHandle<T>, update: F) -> S
-    
-    where T: View, F: FnOnce(&mut T, &mut ViewContext<T>) -> S;
+    where
+        T: View,
+
+        F: FnOnce(&mut T, &mut ViewContext<T>) -> S;
 }
 
 #[derive(Clone)]
 pub struct App(Rc<RefCell<MutableAppContext>>);
 
 impl App {
-    #[cfg(test)]
     pub fn test<T, F: Future<Output = T>>(f: impl FnOnce(App) -> F) -> T {
         let platform = platform::current::app(); // todo: fazer um app de plataforma teste
         let foreground = Rc::new(executor::Foreground::test());
@@ -84,7 +86,7 @@ impl App {
         ))));
 
         app.0.borrow_mut().weak_self = Some(Rc::downgrade(&app.0));
-        
+
         smol::block_on(foreground.run(f(app)))
     }
 
@@ -96,15 +98,14 @@ impl App {
             foreground,
             platform
         ))));
-        
+
         app.0.borrow_mut().weak_self = Some(Rc::downgrade(&app.0));
-        
+
         Ok(app)
     }
 
     pub fn on_window_invalidated<F: 'static + FnMut(WindowInvalidation, &mut MutableAppContext)>(
         &self,
-
         window_id: usize,
         callback: F
     ) {
@@ -127,8 +128,8 @@ impl App {
     pub fn add_global_action<S, T, F>(&self, name: S, handler: F)
     where
         S: Into<String>,
-        T: 'static + Any,
 
+        T: 'static + Any,
         F: 'static + FnMut(&T, &mut MutableAppContext)
     {
         self.0.borrow_mut().add_global_action(name, handler);
@@ -136,6 +137,7 @@ impl App {
 
     pub fn dispatch_action<T: 'static + Any>(
         &self,
+
         window_id: usize,
         responder_chain: Vec<usize>,
         name: &str,
@@ -145,6 +147,7 @@ impl App {
             window_id,
             &responder_chain,
             name,
+
             Box::new(arg).as_ref()
         );
     }
@@ -161,6 +164,7 @@ impl App {
 
     pub fn dispatch_keystroke(
         &self,
+
         window_id: usize,
         responder_chain: Vec<usize>,
         keystroke: &Keystroke
@@ -173,6 +177,7 @@ impl App {
     pub fn add_model<T, F>(&mut self, build_model: F) -> ModelHandle<T>
     where
         T: Entity,
+
         F: FnOnce(&mut ModelContext<T>) -> T
     {
         let mut state = self.0.borrow_mut();
@@ -187,6 +192,7 @@ impl App {
     fn read_model<T, F, S>(&self, handle: &ModelHandle<T>, read: F) -> S
     where
         T: Entity,
+
         F: FnOnce(&T, &AppContext) -> S
     {
         let state = self.0.borrow();
@@ -197,6 +203,7 @@ impl App {
     pub fn add_window<T, F>(&mut self, build_root_view: F) -> (usize, ViewHandle<T>)
     where
         T: View,
+
         F: FnOnce(&mut ViewContext<T>) -> T
     {
         self.0.borrow_mut().add_window(build_root_view)
@@ -213,6 +220,7 @@ impl App {
     pub fn add_view<T, F>(&mut self, window_id: usize, build_view: F) -> ViewHandle<T>
     where
         T: View,
+
         F: FnOnce(&mut ViewContext<T>) -> T
     {
         let mut state = self.0.borrow_mut();
@@ -226,11 +234,13 @@ impl App {
 
     pub fn add_option_view<T, F>(
         &mut self,
+
         window_id: usize,
         build_view: F
     ) -> Option<ViewHandle<T>>
     where
         T: View,
+
         F: FnOnce(&mut ViewContext<T>) -> Option<T>
     {
         let mut state = self.0.borrow_mut();
@@ -259,6 +269,7 @@ impl App {
     fn read_view<T, F, S>(&self, handle: &ViewHandle<T>, read: F) -> S
     where
         T: View,
+
         F: FnOnce(&T, &AppContext) -> S
     {
         let state = self.0.borrow();
@@ -275,6 +286,7 @@ impl UpdateModel for App {
     fn update_model<T, F, S>(&mut self, handle: &ModelHandle<T>, update: F) -> S
     where
         T: Entity,
+
         F: FnOnce(&mut T, &mut ModelContext<T>) -> S
     {
         let mut state = self.0.borrow_mut();
@@ -291,6 +303,7 @@ impl UpdateView for App {
     fn update_view<T, F, S>(&mut self, handle: &ViewHandle<T>, update: F) -> S
     where
         T: View,
+
         F: FnOnce(&mut T, &mut ViewContext<T>) -> S
     {
         let mut state = self.0.borrow_mut();
@@ -308,36 +321,41 @@ type GlobalActionCallback = dyn FnMut(&dyn Any, &mut MutableAppContext);
 
 pub struct MutableAppContext {
     platform: Arc<dyn platform::App>,
+
     ctx: AppContext,
+
     actions: HashMap<TypeId, HashMap<String, Vec<Box<ActionCallback>>>>,
     global_actions: HashMap<String, Vec<Box<GlobalActionCallback>>>,
+
     keystroke_matcher: keymap::Matcher,
-    
+
     next_entity_id: usize,
     next_window_id: usize,
     next_task_id: usize,
-    
+
     weak_self: Option<rc::Weak<RefCell<Self>>>,
-    
+
     subscriptions: HashMap<usize, Vec<Subscription>>,
     observations: HashMap<usize, Vec<Observation>>,
-    
+
     window_invalidations: HashMap<usize, WindowInvalidation>,
     invalidation_callbacks: HashMap<usize, Box<dyn FnMut(WindowInvalidation, &mut MutableAppContext)>>,
-    
+
     foreground: Rc<executor::Foreground>,
     background: Arc<executor::Background>,
 
-    task_callbacks: HashMap<usize, TaskCallback>,
+    future_handlers: HashMap<usize, FutureHandler>,
+    stream_handlers: HashMap<usize, StreamHandler>,
+
     task_done: (channel::Sender<usize>, channel::Receiver<usize>),
-    
+
     pending_effects: VecDeque<Effect>,
     pending_flushes: usize,
-    flushing_effects: bool
+    flushing_effects: bool,
 }
 
 impl MutableAppContext {
-    pub fn with_foreground_executor(foreground: Rc<executor::Foreground>, platform: Arc<dyn platform::App>) -> Self {
+    pub fn new(foreground: Rc<executor::Foreground>, platform: Arc<dyn platform::App>) -> Self {
         Self {
             platform,
 
@@ -357,7 +375,6 @@ impl MutableAppContext {
             next_task_id: 0,
 
             weak_self: None,
-
             subscriptions: HashMap::new(),
             observations: HashMap::new(),
 
@@ -367,12 +384,14 @@ impl MutableAppContext {
             foreground,
             background: Arc::new(executor::Background::new()),
 
-            task_callbacks: HashMap::new(),
+            future_handlers: HashMap::new(),
+            stream_handlers: HashMap::new(),
+
             task_done: channel::unbounded(),
 
             pending_effects: VecDeque::new(),
             pending_flushes: 0,
-            flushing_effects: false
+            flushing_effects: false,
         }
     }
 
@@ -386,6 +405,7 @@ impl MutableAppContext {
 
     pub fn on_window_invalidated<F: 'static + FnMut(WindowInvalidation, &mut MutableAppContext)>(
         &mut self,
+
         window_id: usize,
         callback: F
     ) {
@@ -417,7 +437,7 @@ impl MutableAppContext {
                         handler(
                             view.as_any_mut()
                                 .downcast_mut()
-                                .expect("downcast é um tipo seguro")
+                                .expect("downcast é um tipo seguro"),
                             arg,
 
                             &mut ctx
@@ -428,7 +448,7 @@ impl MutableAppContext {
 
                     None => {
                         log::error!("não foi possível rejeitar o argumento para ação {}", name_clone);
-                        
+
                         false
                     }
                 }
@@ -496,10 +516,12 @@ impl MutableAppContext {
 
         window_id: usize,
         responder_chain: &[usize],
+
         name: &str,
         arg: &dyn Any
     ) -> bool {
         self.pending_flushes += 1;
+
         let mut halted_dispatch = false;
 
         for view_id in responder_chain.iter().rev() {
@@ -562,6 +584,7 @@ impl MutableAppContext {
             }
 
             self.global_actions.insert(name, handlers);
+
             self.flush_effects();
         }
     }
@@ -600,7 +623,7 @@ impl MutableAppContext {
                 context_chain.push(context.clone());
             } else {
                 return Err(anyhow!(
-                    "visualização {} na cadeia de resposta não existe",
+                    "view {} na cadeia de resposta não existe",
 
                     view_id
                 ));
@@ -621,7 +644,6 @@ impl MutableAppContext {
                 MatchResult::Action { name, arg } => {
                     if self.dispatch_action(
                         window_id,
-
                         &responder_chain[0..=i],
                         &name,
 
@@ -669,7 +691,7 @@ impl MutableAppContext {
 
         // self.emit_ui_update(UiUpdate::OpenWindow {
         //     window_id,
-
+        //
         //     width: 1024.0,
         //     height: 768.0
         // });
@@ -680,7 +702,8 @@ impl MutableAppContext {
     pub fn add_view<T, F>(&mut self, window_id: usize, build_view: F) -> ViewHandle<T>
     where
         T: View,
-        F: FnOnce(&mut ViewContext<T>) -> T,
+
+        F: FnOnce(&mut ViewContext<T>) -> T
     {
         self.add_option_view(window_id, |ctx| Some(build_view(ctx)))
             .unwrap()
@@ -698,6 +721,7 @@ impl MutableAppContext {
         F: FnOnce(&mut ViewContext<T>) -> Option<T>
     {
         let view_id = post_inc(&mut self.next_entity_id);
+
         self.pending_flushes += 1;
 
         let mut ctx = ViewContext::new(self, window_id, view_id);
@@ -706,7 +730,7 @@ impl MutableAppContext {
             if let Some(window) = self.ctx.windows.get_mut(&window_id) {
                 window.views.insert(view_id, Box::new(view));
             } else {
-                panic!("a janela não existe");
+                panic!("janela não existente");
             }
 
             self.window_invalidations
@@ -765,6 +789,7 @@ impl MutableAppContext {
             while let Some(effect) = self.pending_effects.pop_front() {
                 match effect {
                     Effect::Event { entity_id, payload } => self.emit_event(entity_id, payload),
+
                     Effect::ModelNotification { model_id } => self.notify_model_observers(model_id),
 
                     Effect::ViewNotification { window_id, view_id } => {
@@ -805,7 +830,7 @@ impl MutableAppContext {
                     Subscription::FromModel { model_id, callback } => {
                         if let Some(mut model) = self.ctx.models.remove(model_id) {
                             callback(model.as_any_mut(), payload.as_ref(), self, *model_id);
-                            
+
                             self.ctx.models.insert(*model_id, model);
 
                             true
@@ -833,7 +858,7 @@ impl MutableAppContext {
                                 self,
 
                                 *window_id,
-                                *view_id
+                                *view_id,
                             );
 
                             self.ctx
@@ -868,9 +893,9 @@ impl MutableAppContext {
                         Observation::FromModel { model_id, callback } => {
                             if let Some(mut model) = self.ctx.models.remove(model_id) {
                                 callback(model.as_any_mut(), observed_id, self, *model_id);
-                                
+
                                 self.ctx.models.insert(*model_id, model);
-                                
+
                                 true
                             } else {
                                 false
@@ -896,7 +921,7 @@ impl MutableAppContext {
                                     self,
 
                                     *window_id,
-                                    *view_id
+                                    *view_id,
                                 );
 
                                 self.ctx
@@ -983,122 +1008,83 @@ impl MutableAppContext {
         self.flush_effects();
     }
 
-    fn spawn_local<F>(&mut self, future: F) -> usize
+    fn spawn<F, T>(&mut self, future: F) -> (usize, ForegroundTask<Option<T>>)
     where
-        F: 'static + Future
+        F: 'static + Future,
+        T: 'static
     {
         let task_id = post_inc(&mut self.next_task_id);
 
-        let app = self.weak_self.as_ref().unwrap().clone();
+        let app = self.weak_self.as_ref().unwrap().upgrade().unwrap();
 
-        self.foreground
-            .spawn(async move {
-                let output = future.await;
+        let task = self.foreground.spawn(async move {
+            let output = future.await;
 
-                if let Some(app) = app.upgrade() {
-                    app.borrow_mut()
-                        .relay_task_output(task_id, Box::new(output));
-                }
-            })
-            
-            .detach();
+            app.borrow_mut()
+                .handle_future_output(task_id, Box::new(output))
+                .map(|result| *result.downcast::<T>().unwrap())
+        });
 
-        task_id
+        (task_id, task)
     }
 
-    fn spawn_stream_local<F>(&mut self, mut stream: F, done_tx: channel::Sender<()>) -> usize
+    fn spawn_stream<F, T>(&mut self, mut stream: F) -> (usize, ForegroundTask<Option<T>>)
     where
-        F: 'static + Stream + Unpin
+        F: 'static + Stream + Unpin,
+        T: 'static
     {
         let task_id = post_inc(&mut self.next_task_id);
 
-        let app = self.weak_self.as_ref().unwrap().clone();
+        let app = self.weak_self.as_ref().unwrap().upgrade().unwrap();
 
-        self.foreground
-            .spawn(async move {
-                loop {
-                    match stream.next().await {
-                        item @ Some(_) => {
-                            if let Some(app) = app.upgrade() {
-                                let mut app = app.borrow_mut();
+        let task = self.foreground.spawn(async move {
+            loop {
+                match stream.next().await {
+                    Some(item) => {
+                        let mut app = app.borrow_mut();
 
-                                if app.relay_task_output(task_id, Box::new(item)) {
-                                    app.stream_completed(task_id);
-                                    
-                                    break;
-                                }
-                            } else {
-                                break;
-                            }
-                        }
-
-                        item @ None => {
-                            if let Some(app) = app.upgrade() {
-                                let mut app = app.borrow_mut();
-                                
-                                app.relay_task_output(task_id, Box::new(item));
-                                app.stream_completed(task_id);
-                            }
-
-                            let _ = done_tx.send(()).await;
-
+                        if app.handle_stream_item(task_id, Box::new(item)) {
                             break;
                         }
                     }
+
+                    None => {
+                        break;
+                    }
                 }
-            })
+            }
 
-            .detach();
+            app.borrow_mut()
+                .stream_completed(task_id)
+                .map(|result| *result.downcast::<T>().unwrap())
+        });
 
-        task_id
+        (task_id, task)
     }
 
-    fn relay_task_output(&mut self, task_id: usize, output: Box<dyn Any>) -> bool {
+    fn handle_future_output(
+        &mut self,
+
+        task_id: usize,
+        output: Box<dyn Any>
+    ) -> Option<Box<dyn Any>> {
         self.pending_flushes += 1;
 
-        let task_callback = self.task_callbacks.remove(&task_id).unwrap();
+        let future_callback = self.future_handlers.remove(&task_id).unwrap();
 
-        let halt = match task_callback {
-            TaskCallback::OnModelFromFuture { model_id, callback } => {
+        let mut result = None;
+
+        match future_callback {
+            FutureHandler::Model { model_id, callback } => {
                 if let Some(mut model) = self.ctx.models.remove(&model_id) {
-                    callback(
-                        model.as_any_mut(),
-                        output,
-                        self,
-                        model_id,
-                        self.foreground.clone()
-                    );
+                    result = Some(callback(model.as_any_mut(), output, self, model_id));
 
                     self.ctx.models.insert(model_id, model);
                 }
 
                 self.task_done(task_id);
-
-                true
             }
-
-            TaskCallback::OnModelFromStream {
-                model_id,
-
-                mut callback
-            } => {
-                if let Some(mut model) = self.ctx.models.remove(&model_id) {
-                    let halt = callback(model.as_any_mut(), output, self, model_id);
-                    
-                    self.ctx.models.insert(model_id, model);
-
-                    self.task_callbacks.insert(
-                        task_id,
-                        TaskCallback::OnModelFromStream { model_id, callback },
-                    );
-
-                    halt
-                } else {
-                    true
-                }
-            }
-
-            TaskCallback::OnViewFromFuture {
+            FutureHandler::View {
                 window_id,
                 view_id,
 
@@ -1110,15 +1096,7 @@ impl MutableAppContext {
                     .get_mut(&window_id)
                     .and_then(|w| w.views.remove(&view_id))
                 {
-                    callback(
-                        view.as_mut(),
-                        output,
-                        self,
-                        window_id,
-                        view_id,
-
-                        self.foreground.clone()
-                    );
+                    result = Some(callback(view.as_mut(), output, self, window_id, view_id));
 
                     self.ctx
                         .windows
@@ -1129,15 +1107,44 @@ impl MutableAppContext {
                 }
 
                 self.task_done(task_id);
-
-                true
             }
+        };
 
-            TaskCallback::OnViewFromStream {
+        self.flush_effects();
+
+        result
+    }
+
+    fn handle_stream_item(&mut self, task_id: usize, output: Box<dyn Any>) -> bool {
+        self.pending_flushes += 1;
+
+        let mut handler = self.stream_handlers.remove(&task_id).unwrap();
+
+        let halt = match &mut handler {
+            StreamHandler::Model {
+                model_id,
+                item_callback,
+
+                ..
+            } => {
+                if let Some(mut model) = self.ctx.models.remove(&model_id) {
+                    let halt = item_callback(model.as_any_mut(), output, self, *model_id);
+
+                    self.ctx.models.insert(*model_id, model);
+                    self.stream_handlers.insert(task_id, handler);
+
+                    halt
+                } else {
+                    true
+                }
+            }
+            StreamHandler::View {
                 window_id,
                 view_id,
 
-                mut callback
+                item_callback,
+
+                ..
             } => {
                 if let Some(mut view) = self
                     .ctx
@@ -1145,25 +1152,16 @@ impl MutableAppContext {
                     .get_mut(&window_id)
                     .and_then(|w| w.views.remove(&view_id))
                 {
-                    let halt = callback(view.as_mut(), output, self, window_id, view_id);
-                    
+                    let halt = item_callback(view.as_mut(), output, self, *window_id, *view_id);
+
                     self.ctx
                         .windows
                         .get_mut(&window_id)
                         .unwrap()
                         .views
-                        .insert(view_id, view);
+                        .insert(*view_id, view);
 
-                    self.task_callbacks.insert(
-                        task_id,
-
-                        TaskCallback::OnViewFromStream {
-                            window_id,
-                            view_id,
-
-                            callback
-                        }
-                    );
+                    self.stream_handlers.insert(task_id, handler);
 
                     halt
                 } else {
@@ -1177,10 +1175,57 @@ impl MutableAppContext {
         halt
     }
 
-    fn stream_completed(&mut self, task_id: usize) {
-        self.task_callbacks.remove(&task_id);
+    fn stream_completed(&mut self, task_id: usize) -> Option<Box<dyn Any>> {
+        let result = match self.stream_handlers.remove(&task_id).unwrap() {
+            StreamHandler::Model {
+                model_id,
+                done_callback,
+
+                ..
+            } => {
+                if let Some(mut model) = self.ctx.models.remove(&model_id) {
+                    let result = done_callback(model.as_any_mut(), self, model_id);
+
+                    self.ctx.models.insert(model_id, model);
+
+                    Some(result)
+                } else {
+                    None
+                }
+            }
+
+            StreamHandler::View {
+                window_id,
+                view_id,
+
+                done_callback,
+
+                ..
+            } => {
+                if let Some(mut view) = self
+                    .ctx
+                    .windows
+                    .get_mut(&window_id)
+                    .and_then(|w| w.views.remove(&view_id))
+                {
+                    let result = done_callback(view.as_mut(), self, window_id, view_id);
+
+                    self.ctx
+                        .windows
+                        .get_mut(&window_id)
+                        .unwrap()
+                        .views
+                        .insert(view_id, view);
+                    Some(result)
+                } else {
+                    None
+                }
+            }
+        };
 
         self.task_done(task_id);
+
+        result
     }
 
     fn task_done(&self, task_id: usize) {
@@ -1189,13 +1234,12 @@ impl MutableAppContext {
         self.foreground
             .spawn(async move {
                 let _ = task_done.send(task_id).await;
-            })
-
-            .detach()
+            }).detach()
     }
 
     pub fn finish_pending_tasks(&self) -> impl Future<Output = ()> {
-        let mut pending_tasks = self.task_callbacks.keys().cloned().collect::<HashSet<_>>();
+        let mut pending_tasks = self.future_handlers.keys().cloned().collect::<HashSet<_>>();
+
         let task_done = self.task_done.1.clone();
 
         async move {
@@ -1227,7 +1271,7 @@ impl UpdateModel for MutableAppContext {
     fn update_model<T, F, S>(&mut self, handle: &ModelHandle<T>, update: F) -> S
     where
         T: Entity,
-
+        
         F: FnOnce(&mut T, &mut ModelContext<T>) -> S
     {
         if let Some(mut model) = self.ctx.models.remove(&handle.model_id) {
@@ -1245,11 +1289,12 @@ impl UpdateModel for MutableAppContext {
             );
 
             self.ctx.models.insert(handle.model_id, model);
+
             self.flush_effects();
 
             result
         } else {
-            panic!("referência de modelo circular");
+            panic!("atualização de modelo circular");
         }
     }
 }
@@ -1260,10 +1305,10 @@ impl ViewAsRef for MutableAppContext {
             if let Some(view) = window.views.get(&handle.view_id) {
                 view.as_any().downcast_ref().expect("downcast é um tipo seguro")
             } else {
-                panic!("referência de modelo circular");
+                panic!("referência de vista circular");
             }
         } else {
-            panic!("a janela não existe");
+            panic!("janela não existente");
         }
     }
 }
@@ -1284,7 +1329,7 @@ impl UpdateView for MutableAppContext {
                 panic!("atualização da visualização circular");
             }
         } else {
-            panic!("a janela não existe");
+            panic!("janela não existente");
         };
 
         let mut ctx = ViewContext::new(self, handle.window_id, handle.view_id);
@@ -1372,10 +1417,10 @@ impl ViewAsRef for AppContext {
                     .downcast_ref()
                     .expect("downcast deve ser um tipo seguro")
             } else {
-                panic!("referência de modelo circular");
+                panic!("referência de visualização circular");
             }
         } else {
-            panic!("janela não encontrada");
+            panic!("janela não existente");
         }
     }
 }
@@ -1383,6 +1428,7 @@ impl ViewAsRef for AppContext {
 #[derive(Default)]
 struct Window {
     views: HashMap<usize, Box<dyn AnyView>>,
+
     root_view: Option<AnyViewHandle>,
     focused_view: Option<usize>
 }
@@ -1416,6 +1462,7 @@ pub enum Effect {
 
 pub trait AnyModel: Send + Sync {
     fn as_any(&self) -> &dyn Any;
+
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
@@ -1435,14 +1482,14 @@ where
 pub trait AnyView: Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
-    
+
     fn ui_name(&self) -> &'static str;
     fn render<'a>(&self, app: &AppContext) -> Box<dyn Element>;
 
     fn on_focus(&mut self, app: &mut MutableAppContext, window_id: usize, view_id: usize);
     fn on_blur(&mut self, app: &mut MutableAppContext, window_id: usize, view_id: usize);
     
-    fn keymap_context(&self, app: &AppContext) -> keymap::Context
+    fn keymap_context(&self, app: &AppContext) -> keymap::Context;
 }
 
 impl<T> AnyView for T
@@ -1473,7 +1520,7 @@ where
 
     fn on_blur(&mut self, app: &mut MutableAppContext, window_id: usize, view_id: usize) {
         let mut ctx = ViewContext::new(app, window_id, view_id);
-
+        
         View::on_blur(self, &mut ctx);
     }
 
@@ -1487,6 +1534,7 @@ pub struct ModelContext<'a, T: ?Sized> {
 
     model_id: usize,
     model_type: PhantomData<T>,
+
     halt_stream: bool
 }
 
@@ -1494,8 +1542,10 @@ impl<'a, T: Entity> ModelContext<'a, T> {
     fn new(app: &'a mut MutableAppContext, model_id: usize) -> Self {
         Self {
             app,
+
             model_id,
             model_type: PhantomData,
+
             halt_stream: false
         }
     }
@@ -1523,6 +1573,7 @@ impl<'a, T: Entity> ModelContext<'a, T> {
     pub fn add_model<S, F>(&mut self, build_model: F) -> ModelHandle<S>
     where
         S: Entity,
+
         F: FnOnce(&mut ModelContext<S>) -> S
     {
         self.app.add_model(build_model)
@@ -1531,13 +1582,13 @@ impl<'a, T: Entity> ModelContext<'a, T> {
     pub fn subscribe<S: Entity, F>(&mut self, handle: &ModelHandle<S>, mut callback: F)
     where
         S::Event: 'static,
+
         F: 'static + FnMut(&mut T, &S::Event, &mut ModelContext<T>)
     {
         self.app
             .subscriptions
             .entry(handle.model_id)
             .or_default()
-
             .push(Subscription::FromModel {
                 model_id: self.model_id,
 
@@ -1546,7 +1597,7 @@ impl<'a, T: Entity> ModelContext<'a, T> {
                     let payload = payload.downcast_ref().expect("downcast é um tipo seguro");
                     
                     let mut ctx = ModelContext::new(app, model_id);
-                    
+
                     callback(model, payload, &mut ctx);
                 })
             });
@@ -1570,12 +1621,10 @@ impl<'a, T: Entity> ModelContext<'a, T> {
             .observations
             .entry(handle.model_id)
             .or_default()
-
             .push(Observation::FromModel {
                 model_id: self.model_id,
-
                 callback: Box::new(move |model, observed_id, app, model_id| {
-                    let model = model.downcast_mut().expect("downcast is type safe");
+                    let model = model.downcast_mut().expect("downcast é um tipo seguro");
                     let observed = ModelHandle::new(observed_id, &app.ctx.ref_counts);
                     
                     let mut ctx = ModelContext::new(app, model_id);
@@ -1589,99 +1638,85 @@ impl<'a, T: Entity> ModelContext<'a, T> {
         self.app
             .pending_effects
             .push_back(Effect::ModelNotification {
-                model_id: self.model_id
+                model_id: self.model_id,
             });
     }
 
-    pub fn spawn_local<S, F, U>(&mut self, future: S, callback: F) -> impl Future<Output = U>
+    pub fn spawn<S, F, U>(&mut self, future: S, callback: F) -> ForegroundTask<Option<U>>
     where
         S: 'static + Future,
         F: 'static + FnOnce(&mut T, S::Output, &mut ModelContext<T>) -> U,
-        
         U: 'static
     {
-        let (tx, rx) = channel::bounded(1);
+        let (task_id, task) = self.app.spawn::<S, U>(future);
 
-        let task_id = self.app.spawn_local(future);
-
-        self.app.task_callbacks.insert(
+        self.app.future_handlers.insert(
             task_id,
-
-            TaskCallback::OnModelFromFuture {
+            FutureHandler::Model {
                 model_id: self.model_id,
-
-                callback: Box::new(move |model, output, app, model_id, executor| {
+                callback: Box::new(move |model, output, app, model_id| {
                     let model = model.downcast_mut().unwrap();
                     let output = *output.downcast().unwrap();
-                    
-                    let result = callback(model, output, &mut ModelContext::new(app, model_id));
-                    
-                    executor
-                        .spawn(async move { tx.send(result).await })
-                        .detach();
+
+                    Box::new(callback(
+                        model,
+                        output,
+
+                        &mut ModelContext::new(app, model_id)
+                    ))
                 })
             }
         );
 
-        async move { rx.recv().await.unwrap() }
+        task
     }
 
-    pub fn spawn<S, F, U>(&mut self, future: S, callback: F) -> impl Future<Output = U>
-    where
-        S: 'static + Future + Send,
-        S::Output: Send,
-
-        F: 'static + FnOnce(&mut T, S::Output, &mut ModelContext<T>) -> U,
-        U: 'static
-    {
-        let (tx, rx) = channel::bounded(1);
-
-        self.app
-            .background
-            .spawn(async move {
-                if let Err(e) = tx.send(future.await).await {
-                    log::error!("erro ao enviar resultado da tarefa em segundo plano para o thread principal: {}", e);
-                }
-            })
-            .detach();
-
-        self.spawn_local(async move { rx.recv().await.unwrap() }, callback)
-    }
-
-    pub fn spawn_stream_local<S, F>(
+    pub fn spawn_stream<S, F, G, U>(
         &mut self,
+
         stream: S,
-        mut callback: F
-    ) -> impl Future<Output = ()>
+        mut item_callback: F,
+        done_callback: G
+    ) -> ForegroundTask<Option<U>>
     where
         S: 'static + Stream + Unpin,
 
-        F: 'static + FnMut(&mut T, Option<S::Item>, &mut ModelContext<T>)
+        F: 'static + FnMut(&mut T, S::Item, &mut ModelContext<T>),
+        G: 'static + FnOnce(&mut T, &mut ModelContext<T>) -> U,
+
+        U: 'static + Any
     {
-        let (tx, rx) = channel::bounded(1);
-
-        let task_id = self.app.spawn_stream_local(stream, tx);
-
-        self.app.task_callbacks.insert(
+        let (task_id, task) = self.app.spawn_stream(stream);
+        self.app.stream_handlers.insert(
             task_id,
 
-            TaskCallback::OnModelFromStream {
+            StreamHandler::Model {
                 model_id: self.model_id,
 
-                callback: Box::new(move |model, output, app, model_id| {
+                item_callback: Box::new(move |model, output, app, model_id| {
                     let model = model.downcast_mut().unwrap();
                     let output = *output.downcast().unwrap();
 
                     let mut ctx = ModelContext::new(app, model_id);
 
-                    callback(model, output, &mut ctx);
+                    item_callback(model, output, &mut ctx);
 
                     ctx.halt_stream
-                })
+                }),
+
+                done_callback: Box::new(
+                    move |model: &mut dyn Any, app: &mut MutableAppContext, model_id| {
+                        let model = model.downcast_mut().unwrap();
+
+                        let mut ctx = ModelContext::new(app, model_id);
+                        
+                        Box::new(done_callback(model, &mut ctx))
+                    }
+                )
             }
         );
 
-        async move { rx.recv().await.unwrap() }
+        task
     }
 }
 
@@ -1709,6 +1744,7 @@ pub struct ViewContext<'a, T: ?Sized> {
     view_id: usize,
 
     view_type: PhantomData<T>,
+
     halt_action_dispatch: bool,
     halt_stream: bool
 }
@@ -1717,9 +1753,10 @@ impl<'a, T: View> ViewContext<'a, T> {
     fn new(app: &'a mut MutableAppContext, window_id: usize, view_id: usize) -> Self {
         Self {
             app,
-            window_id,
 
+            window_id,
             view_id,
+
             view_type: PhantomData,
 
             halt_action_dispatch: true,
@@ -1758,6 +1795,7 @@ impl<'a, T: View> ViewContext<'a, T> {
     pub fn focus_self(&mut self) {
         self.app.pending_effects.push_back(Effect::Focus {
             window_id: self.window_id,
+
             view_id: self.view_id
         });
     }
@@ -1810,9 +1848,9 @@ impl<'a, T: View> ViewContext<'a, T> {
                     if let Some(emitter_handle) = emitter_handle.upgrade(app.ctx()) {
                         let model = view.downcast_mut().expect("downcast é um tipo seguro");
                         let payload = payload.downcast_ref().expect("downcast é um tipo seguro");
-                        
+
                         let mut ctx = ViewContext::new(app, window_id, view_id);
-                        
+
                         callback(model, emitter_handle, payload, &mut ctx);
                     }
                 })
@@ -1874,9 +1912,9 @@ impl<'a, T: View> ViewContext<'a, T> {
                 callback: Box::new(move |view, observed_id, app, window_id, view_id| {
                     let view = view.downcast_mut().expect("downcast é um tipo seguro");
                     let observed = ModelHandle::new(observed_id, &app.ctx.ref_counts);
-                    
+
                     let mut ctx = ViewContext::new(app, window_id, view_id);
-                    
+
                     callback(view, observed, &mut ctx);
                 })
             });
@@ -1899,95 +1937,84 @@ impl<'a, T: View> ViewContext<'a, T> {
         self.halt_stream = true;
     }
 
-    pub fn spawn_local<S, F, U>(&mut self, future: S, callback: F) -> impl Future<Output = U>
+    pub fn spawn<S, F, U>(&mut self, future: S, callback: F) -> ForegroundTask<Option<U>>
     where
         S: 'static + Future,
         F: 'static + FnOnce(&mut T, S::Output, &mut ViewContext<T>) -> U,
 
         U: 'static
     {
-        let (tx, rx) = channel::bounded(1);
+        let (task_id, task) = self.app.spawn(future);
 
-        let task_id = self.app.spawn_local(future);
-
-        self.app.task_callbacks.insert(
+        self.app.future_handlers.insert(
             task_id,
 
-            TaskCallback::OnViewFromFuture {
-                window_id: self.window_id,
-                view_id: self.view_id,
-
-                callback: Box::new(move |view, output, app, window_id, view_id, executor| {
-                    let view = view.as_any_mut().downcast_mut().unwrap();
-                    let output = *output.downcast().unwrap();
-                    let result = callback(view, output, &mut ViewContext::new(app, window_id, view_id));
-                    
-                    executor
-                        .spawn(async move { tx.send(result).await })
-                        .detach();
-                })
-            }
-        );
-
-        async move { rx.recv().await.unwrap() }
-    }
-
-    pub fn spawn<S, F, U>(&mut self, future: S, callback: F) -> impl Future<Output = U>
-    where
-        S: 'static + Future + Send,
-        S::Output: Send,
-        F: 'static + FnOnce(&mut T, S::Output, &mut ViewContext<T>) -> U,
-        U: 'static
-    {
-        let (tx, rx) = channel::bounded(1);
-
-        self.app
-            .background
-            .spawn(async move {
-                if let Err(_) = tx.send(future.await).await {
-                    log::error!("erro ao enviar o resultado da tarefa em segundo plano para o thread principal",);
-                }
-            })
-            .detach();
-
-        self.spawn_local(async move { rx.recv().await.unwrap() }, callback)
-    }
-
-    pub fn spawn_stream_local<S, F>(
-        &mut self,
-        stream: S,
-        mut callback: F
-    ) -> impl Future<Output = ()>
-    where
-        S: 'static + Stream + Unpin,
-
-        F: 'static + FnMut(&mut T, Option<S::Item>, &mut ViewContext<T>)
-    {
-        let (tx, rx) = channel::bounded(1);
-
-        let task_id = self.app.spawn_stream_local(stream, tx);
-
-        self.app.task_callbacks.insert(
-            task_id,
-
-            TaskCallback::OnViewFromStream {
+            FutureHandler::View {
                 window_id: self.window_id,
                 view_id: self.view_id,
 
                 callback: Box::new(move |view, output, app, window_id, view_id| {
                     let view = view.as_any_mut().downcast_mut().unwrap();
                     let output = *output.downcast().unwrap();
-                    
-                    let mut ctx = ViewContext::new(app, window_id, view_id);
-                    
-                    callback(view, output, &mut ctx);
-                    
-                    ctx.halt_stream
+
+                    Box::new(callback(
+                        view,
+                        output,
+
+                        &mut ViewContext::new(app, window_id, view_id)
+                    ))
                 })
             }
         );
 
-        async move { rx.recv().await.unwrap() }
+        task
+    }
+
+    pub fn spawn_stream<S, F, G, U>(
+        &mut self,
+        stream: S,
+
+        mut item_callback: F,
+        done_callback: G
+    ) -> ForegroundTask<Option<U>>
+    where
+        S: 'static + Stream + Unpin,
+
+        F: 'static + FnMut(&mut T, S::Item, &mut ViewContext<T>),
+        G: 'static + FnOnce(&mut T, &mut ViewContext<T>) -> U,
+
+        U: 'static + Any
+    {
+        let (task_id, task) = self.app.spawn_stream(stream);
+
+        self.app.stream_handlers.insert(
+            task_id,
+
+            StreamHandler::View {
+                window_id: self.window_id,
+                view_id: self.view_id,
+
+                item_callback: Box::new(move |view, output, app, window_id, view_id| {
+                    let view = view.as_any_mut().downcast_mut().unwrap();
+                    let output = *output.downcast().unwrap();
+
+                    let mut ctx = ViewContext::new(app, window_id, view_id);
+
+                    item_callback(view, output, &mut ctx);
+
+                    ctx.halt_stream
+                }),
+
+                done_callback: Box::new(move |view, app, window_id, view_id| {
+                    let view = view.as_any_mut().downcast_mut().unwrap();
+                    let mut ctx = ViewContext::new(app, window_id, view_id);
+
+                    Box::new(done_callback(view, &mut ctx))
+                })
+            }
+        );
+
+        task
     }
 }
 
@@ -2034,6 +2061,7 @@ pub trait Handle<T> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum EntityLocation {
     Model(usize),
+
     View(usize, usize)
 }
 
@@ -2151,7 +2179,7 @@ impl<T> Handle<T> for ModelHandle<T> {
 
 pub struct WeakModelHandle<T> {
     model_id: usize,
-    model_type: PhantomData<T>
+    model_type: PhantomData<T>,
 }
 
 impl<T: Entity> WeakModelHandle<T> {
@@ -2225,8 +2253,7 @@ impl<T: View> ViewHandle<T> {
     }
 
     pub fn is_focused(&self, app: &AppContext) -> bool {
-        app.focused_view_id(self.window_id)
-            .map_or(false, |focused_id| focused_id == self.view_id)
+        app.focused_view_id(self.window_id).map_or(false, |focused_id| focused_id == self.view_id)
     }
 }
 
@@ -2344,7 +2371,8 @@ impl<T: View> WeakViewHandle<T> {
         Self {
             window_id,
             view_id,
-            view_type: PhantomData,
+
+            view_type: PhantomData
         }
     }
 
@@ -2381,8 +2409,8 @@ impl<T> Clone for WeakViewHandle<T> {
 #[derive(Default)]
 struct RefCounts {
     counts: HashMap<usize, usize>,
-
     dropped_models: HashSet<usize>,
+
     dropped_views: HashSet<(usize, usize)>
 }
 
@@ -2397,6 +2425,7 @@ impl RefCounts {
 
             if *count == 0 {
                 self.counts.remove(&model_id);
+
                 self.dropped_models.insert(model_id);
             }
         } else {
@@ -2410,6 +2439,7 @@ impl RefCounts {
 
             if *count == 0 {
                 self.counts.remove(&view_id);
+
                 self.dropped_views.insert((window_id, view_id));
             }
         } else {
@@ -2423,7 +2453,7 @@ impl RefCounts {
 
         std::mem::swap(&mut self.dropped_models, &mut dropped_models);
         std::mem::swap(&mut self.dropped_views, &mut dropped_views);
-        
+
         (dropped_models, dropped_views)
     }
 }
@@ -2458,31 +2488,46 @@ enum Observation {
     }
 }
 
-enum TaskCallback {
-    OnModelFromFuture {
+enum FutureHandler {
+    Model {
         model_id: usize,
 
-        callback: Box<dyn FnOnce(&mut dyn Any, Box<dyn Any>, &mut MutableAppContext, usize, Rc<executor::Foreground>)>
+        callback: Box<
+            dyn FnOnce(&mut dyn Any, Box<dyn Any>, &mut MutableAppContext, usize) -> Box<dyn Any>
+        >
     },
 
-    OnModelFromStream {
-        model_id: usize,
-
-        callback: Box<dyn FnMut(&mut dyn Any, Box<dyn Any>, &mut MutableAppContext, usize) -> bool>
-    },
-
-    OnViewFromFuture {
+    View {
         window_id: usize,
         view_id: usize,
 
-        callback: Box<dyn FnOnce(&mut dyn AnyView, Box<dyn Any>, &mut MutableAppContext, usize, usize, Rc<executor::Foreground>)>
+        callback: Box<
+            dyn FnOnce(
+                &mut dyn AnyView,
+                Box<dyn Any>,
+                &mut MutableAppContext,
+
+                usize,
+                usize,
+            ) -> Box<dyn Any>
+        >
+    }
+}
+
+enum StreamHandler {
+    Model {
+        model_id: usize,
+
+        item_callback: Box<dyn FnMut(&mut dyn Any, Box<dyn Any>, &mut MutableAppContext, usize) -> bool>,
+        done_callback: Box<dyn FnOnce(&mut dyn Any, &mut MutableAppContext, usize) -> Box<dyn Any>>
     },
 
-    OnViewFromStream {
+    View {
         window_id: usize,
         view_id: usize,
 
-        callback: Box<dyn FnMut(&mut dyn AnyView, Box<dyn Any>, &mut MutableAppContext, usize, usize) -> bool>
+        item_callback: Box<dyn FnMut(&mut dyn AnyView, Box<dyn Any>, &mut MutableAppContext, usize, usize) -> bool,>,
+        done_callback: Box<dyn FnOnce(&mut dyn AnyView, &mut MutableAppContext, usize, usize) -> Box<dyn Any>>
     }
 }
 
@@ -2516,7 +2561,7 @@ mod tests {
 
                 Self {
                     other,
-                    events: Vec::new()
+                    events: Vec::new(),
                 }
             }
         }
@@ -2531,6 +2576,7 @@ mod tests {
 
         handle_1.update(app, |model, ctx| {
             model.events.push("updated".into());
+
             ctx.emit(1);
             ctx.notify();
             ctx.emit(2);
@@ -2543,23 +2589,24 @@ mod tests {
         handle_2.read(app, |model, _| {
             assert_eq!(
                 model.events,
+
                 vec![
-                    "evento 1 observado".to_string(),
+                    "observed event 1".to_string(),
                     "notified".to_string(),
-                    "evento 2 observado".to_string(),
+                    "observed event 2".to_string()
                 ]
             );
         });
 
         handle_2.update(app, |model, _| {
             drop(handle_1);
-
             model.other.take();
         });
 
         let app_state = app.0.borrow();
 
         assert_eq!(app_state.ctx.models.len(), 1);
+
         assert!(app_state.subscriptions.is_empty());
         assert!(app_state.observations.is_empty());
     }
@@ -2568,7 +2615,7 @@ mod tests {
     fn test_subscribe_and_emit_from_model() {
         #[derive(Default)]
         struct Model {
-            events: Vec<usize>
+            events: Vec<usize>,
         }
 
         impl Entity for Model {
@@ -2576,6 +2623,7 @@ mod tests {
         }
 
         let mut app = App::new().unwrap();
+
         let app = &mut app;
 
         let handle_1 = app.add_model(|_| Model::default());
@@ -2659,17 +2707,15 @@ mod tests {
             type Event = ();
         }
 
-        App::run(|mut app| async move {
+        App::test(|mut app| async move {
             let handle = app.add_model(|_| Model::default());
 
             handle
                 .update(&mut app, |_, c| {
-                    c.spawn_local(async { 7 }, |model, output, _| {
+                    c.spawn(async { 7 }, |model, output, _| {
                         model.count = output;
                     })
-                })
-                .await;
-
+                }).await;
             handle.read(&app, |model, _| assert_eq!(model.count, 7));
 
             handle
@@ -2677,9 +2723,7 @@ mod tests {
                     c.spawn(async { 14 }, |model, output, _| {
                         model.count = output;
                     })
-                })
-                .await;
-
+                }).await;
             handle.read(&app, |model, _| assert_eq!(model.count, 14));
         });
     }
@@ -2695,16 +2739,23 @@ mod tests {
             type Event = ();
         }
 
-        App::run(|mut app| async move {
+        App::test(|mut app| async move {
             let handle = app.add_model(|_| Model::default());
 
             handle
                 .update(&mut app, |_, c| {
-                    c.spawn_stream_local(smol::stream::iter(vec![1, 2, 3]), |model, output, _| {
-                        model.events.push(output);
-                    })
-                })
-                .await;
+                    c.spawn_stream(
+                        smol::stream::iter(vec![1, 2, 3]),
+
+                        |model, output, _| {
+                            model.events.push(Some(output));
+                        },
+
+                        |model, _| {
+                            model.events.push(None);
+                        }
+                    )
+                }).await;
 
             handle.read(&app, |model, _| {
                 assert_eq!(model.events, [Some(1), Some(2), Some(3), None])
@@ -2743,6 +2794,7 @@ mod tests {
 
                 Self {
                     other,
+
                     events: Vec::new()
                 }
             }
@@ -2752,15 +2804,14 @@ mod tests {
         let app = &mut app;
 
         let (window_id, _) = app.add_window(|ctx| View::new(None, ctx));
-        
+
         let handle_1 = app.add_view(window_id, |ctx| View::new(None, ctx));
         let handle_2 = app.add_view(window_id, |ctx| View::new(Some(handle_1.clone()), ctx));
-        
+
         assert_eq!(app.0.borrow().ctx.windows[&window_id].views.len(), 3);
 
         handle_1.update(app, |view, ctx| {
             view.events.push("updated".into());
-
             ctx.emit(1);
             ctx.emit(2);
         });
@@ -2773,22 +2824,19 @@ mod tests {
             assert_eq!(
                 view.events,
                 vec![
-                    "evento 1 observado".to_string(),
-                    "evento 2 observado".to_string()
+                    "observed event 1".to_string(),
+                    "observed event 2".to_string(),
                 ]
             );
         });
 
         handle_2.update(app, |view, _| {
             drop(handle_1);
-
             view.other.take();
         });
 
         let app_state = app.0.borrow();
-
         assert_eq!(app_state.ctx.windows[&window_id].views.len(), 2);
-        
         assert!(app_state.subscriptions.is_empty());
         assert!(app_state.observations.is_empty());
     }
@@ -2797,7 +2845,7 @@ mod tests {
     fn test_subscribe_and_emit_from_view() {
         #[derive(Default)]
         struct View {
-            events: Vec<usize>
+            events: Vec<usize>,
         }
 
         impl Entity for View {
@@ -2825,7 +2873,7 @@ mod tests {
 
         let (window_id, handle_1) = app.add_window(|_| View::default());
         let handle_2 = app.add_view(window_id, |_| View::default());
-        
+
         let handle_2b = handle_2.clone();
         let handle_3 = app.add_model(|_| Model);
 
@@ -2910,7 +2958,7 @@ mod tests {
     fn test_observe_and_notify_from_view() {
         #[derive(Default)]
         struct View {
-            events: Vec<usize>
+            events: Vec<usize>,
         }
 
         impl Entity for View {
@@ -2950,6 +2998,7 @@ mod tests {
 
         model.update(app, |model, c| {
             model.count = 11;
+
             c.notify();
         });
 
@@ -2984,8 +3033,8 @@ mod tests {
         let app = &mut app;
 
         let (window_id, _) = app.add_window(|_| View);
-        let observing_view = app.add_view(window_id, |_| View);
 
+        let observing_view = app.add_view(window_id, |_| View);
         let observing_model = app.add_model(|_| Model);
         let observed_model = app.add_model(|_| Model);
 
@@ -3009,7 +3058,7 @@ mod tests {
     fn test_focus() {
         #[derive(Default)]
         struct View {
-            events: Vec<String>
+            events: Vec<String>,
         }
 
         impl Entity for View {
@@ -3026,15 +3075,15 @@ mod tests {
             }
 
             fn on_focus(&mut self, ctx: &mut ViewContext<Self>) {
-                self.events.push("autocentrado".into());
-                
-                ctx.emit("focado".into());
+                self.events.push("self focused".into());
+
+                ctx.emit("focused".into());
             }
 
             fn on_blur(&mut self, ctx: &mut ViewContext<Self>) {
-                self.events.push("auto desfocado".into());
-                
-                ctx.emit("desfocado".into());
+                self.events.push("self blurred".into());
+
+                ctx.emit("blurred".into());
             }
         }
 
@@ -3046,7 +3095,7 @@ mod tests {
 
         view_1.update(app, |_, ctx| {
             ctx.subscribe_to_view(&view_2, |view_1, _, event, _| {
-                view_1.events.push(format!("visualização 2 {}", event));
+                view_1.events.push(format!("view 2 {}", event));
             });
 
             ctx.focus(&view_2);
@@ -3061,11 +3110,11 @@ mod tests {
                 view_1.events,
 
                 [
-                    "autocentrado".to_string(),
-                    "auto desfocado".to_string(),
-                    "visualização 2 focada".to_string(),
-                    "autocentrado".to_string(),
-                    "visualização 2 desfocada".to_string()
+                    "self focused".to_string(),
+                    "self blurred".to_string(),
+                    "view 2 focused".to_string(),
+                    "self focused".to_string(),
+                    "view 2 blurred".to_string()
                 ]
             );
         });
@@ -3075,7 +3124,7 @@ mod tests {
     fn test_spawn_from_view() {
         #[derive(Default)]
         struct View {
-            count: usize
+            count: usize,
         }
 
         impl Entity for View {
@@ -3092,18 +3141,16 @@ mod tests {
             }
         }
 
-        App::run(|mut app| async move {
+        App::test(|mut app| async move {
             let (_, handle) = app.add_window(|_| View::default());
 
             handle
                 .update(&mut app, |_, c| {
-                    c.spawn_local(async { 7 }, |me, output, _| {
+                    c.spawn(async { 7 }, |me, output, _| {
                         me.count = output;
                     })
                 }).await;
-
-            handle
-                .read(&app, |view, _| assert_eq!(view.count, 7));
+            handle.read(&app, |view, _| assert_eq!(view.count, 7));
 
             handle
                 .update(&mut app, |_, c| {
@@ -3111,7 +3158,6 @@ mod tests {
                         me.count = output;
                     })
                 }).await;
-
             handle.read(&app, |view, _| assert_eq!(view.count, 14));
         });
     }
@@ -3120,7 +3166,7 @@ mod tests {
     fn test_spawn_stream_local_from_view() {
         #[derive(Default)]
         struct View {
-            events: Vec<Option<usize>>
+            events: Vec<Option<usize>>,
         }
 
         impl Entity for View {
@@ -3137,16 +3183,23 @@ mod tests {
             }
         }
 
-        App::run(|mut app| async move {
+        App::test(|mut app| async move {
             let (_, handle) = app.add_window(|_| View::default());
 
             handle
                 .update(&mut app, |_, c| {
-                    c.spawn_stream_local(stream::iter(vec![1, 2, 3]), |me, output, _| {
-                        me.events.push(output);
-                    })
-                })
-                .await;
+                    c.spawn_stream(
+                        smol::stream::iter(vec![1_usize, 2, 3]),
+
+                        |me, output, _| {
+                            me.events.push(Some(output));
+                        },
+
+                        |me, _| {
+                            me.events.push(None);
+                        }
+                    )
+                }).await;
 
             handle.read(&app, |view, _| {
                 assert_eq!(view.events, [Some(1), Some(2), Some(3), None])
@@ -3193,23 +3246,26 @@ mod tests {
         }
 
         struct ActionArg {
-            foo: String,
+            foo: String
         }
 
         let mut app = App::new().unwrap();
         let actions = Rc::new(RefCell::new(Vec::new()));
 
         let actions_clone = actions.clone();
+
         app.add_global_action("action", move |_: &ActionArg, _: &mut MutableAppContext| {
             actions_clone.borrow_mut().push("global a".to_string());
         });
 
         let actions_clone = actions.clone();
+
         app.add_global_action("action", move |_: &ActionArg, _: &mut MutableAppContext| {
             actions_clone.borrow_mut().push("global b".to_string());
         });
 
         let actions_clone = actions.clone();
+
         app.add_action("action", move |view: &mut ViewA, arg: &ActionArg, ctx| {
             assert_eq!(arg.foo, "bar");
 
@@ -3218,6 +3274,7 @@ mod tests {
         });
 
         let actions_clone = actions.clone();
+
         app.add_action("action", move |view: &mut ViewA, _: &ActionArg, ctx| {
             if view.id != 1 {
                 ctx.propagate_action();
@@ -3227,6 +3284,7 @@ mod tests {
         });
 
         let actions_clone = actions.clone();
+
         app.add_action("action", move |view: &mut ViewB, _: &ActionArg, ctx| {
             ctx.propagate_action();
 
@@ -3234,6 +3292,7 @@ mod tests {
         });
 
         let actions_clone = actions.clone();
+
         app.add_action("action", move |view: &mut ViewB, _: &ActionArg, ctx| {
             ctx.propagate_action();
 
@@ -3249,6 +3308,7 @@ mod tests {
         app.dispatch_action(
             window_id,
             vec![view_1.id(), view_2.id(), view_3.id(), view_4.id()],
+
             "action",
             ActionArg { foo: "bar".into() }
         );
@@ -3265,12 +3325,14 @@ mod tests {
         app.dispatch_action(
             window_id,
             vec![view_2.id(), view_3.id(), view_4.id()],
+
             "action",
             ActionArg { foo: "bar".into() }
         );
 
         assert_eq!(
             *actions.borrow(),
+
             vec!["4 d", "4 c", "3 b", "3 a", "2 d", "2 c", "global b", "global a"]
         );
     }
@@ -3286,6 +3348,7 @@ mod tests {
 
         struct View {
             id: usize,
+
             keymap_context: keymap::Context
         }
 
@@ -3311,7 +3374,8 @@ mod tests {
             fn new(id: usize) -> Self {
                 View {
                     id,
-                    keymap_context: keymap::Context::default(),
+
+                    keymap_context: keymap::Context::default()
                 }
             }
         }
@@ -3330,8 +3394,8 @@ mod tests {
         let view_2 = app.add_view(window_id, |_| view_2);
         let view_3 = app.add_view(window_id, |_| view_3);
 
-        // This keymap's only binding dispatches an action on view 2 because that view will have
-        // "a" and "b" in its context, but not "c".
+        // a única ligação deste keymap despacha uma ação na visualização 2 porque
+        // essa visualização terá "a" e "b" em seu contexto, e não "c"
         let binding = keymap::Binding::new("a", "action", Some("a && b && !c")).with_arg(ActionArg { key: "a".into() });
         app.add_bindings(vec![binding]);
 
@@ -3340,24 +3404,28 @@ mod tests {
 
         app.add_action("action", move |view: &mut View, arg: &ActionArg, _ctx| {
             handled_action_clone.set(true);
+
             assert_eq!(view.id, 2);
             assert_eq!(arg.key, "a");
         });
 
         app.dispatch_keystroke(
             window_id,
+
             vec![view_1.id(), view_2.id(), view_3.id()],
-            &Keystroke::parse("a")?,
+
+            &Keystroke::parse("a")?
         )?;
 
         assert!(handled_action.get());
+
         Ok(())
     }
 
     // #[test]
     // fn test_ui_and_window_updates() {
     //     struct View {
-    //         count: usize,
+    //         count: usize
     //     }
     //
     //     impl Entity for View {
@@ -3374,23 +3442,23 @@ mod tests {
     //         }
     //     }
     //
-    //     App::run(|mut app| async move {
+    //     App::test(|mut app| async move {
     //         let (window_id, _) = app.add_window(|_| View { count: 3 });
     //
     //         let view_1 = app.add_view(window_id, |_| View { count: 1 });
     //         let view_2 = app.add_view(window_id, |_| View { count: 2 });
     //
-    //         // certifique-se de que o registro para atualizações da ui após a mutação
-    //         // do aplicativo ainda nos forneça todas as atualizações
     //         let ui_updates = Rc::new(RefCell::new(Vec::new()));
     //         let ui_updates_ = ui_updates.clone();
+    //
     //         app.on_ui_update(move |update, _| ui_updates_.borrow_mut().push(update));
     //
     //         assert_eq!(
     //             ui_updates.borrow_mut().drain(..).collect::<Vec<_>>(),
+    //
     //             vec![UiUpdate::OpenWindow {
     //                 window_id,
-    //              
+    //
     //                 width: 1024.0,
     //                 height: 768.0
     //             }]
@@ -3404,10 +3472,10 @@ mod tests {
     //         });
     //
     //         let view_2_id = view_2.id();
+    //
     //         view_1.update(&mut app, |view, ctx| {
     //             view.count = 7;
     //             ctx.notify();
-    //
     //             drop(view_2);
     //         });
     //
@@ -3432,13 +3500,11 @@ mod tests {
     //
     //                     ctx.notify();
     //                 })
-    //             })
-    //             .await;
+    //             }).await;
     //
     //         let invalidation = window_invalidations.borrow_mut().drain(..).next().unwrap();
     //
     //         assert_eq!(invalidation.updated.len(), 1);
-    //
     //         assert!(invalidation.updated.contains(&view_3.id()));
     //         assert!(invalidation.removed.is_empty());
     //     });
@@ -3474,22 +3540,22 @@ mod tests {
 
             model.update(&mut app, |_, ctx| {
                 let _ = ctx.spawn(async {}, |_, _, _| {});
-                let _ = ctx.spawn_local(async {}, |_, _, _| {});
+                let _ = ctx.spawn(async {}, |_, _, _| {});
 
-                let _ = ctx.spawn_stream_local(smol::stream::iter(vec![1, 2, 3]), |_, _, _| {});
+                let _ = ctx.spawn_stream(smol::stream::iter(vec![1, 2, 3]), |_, _, _| {}, |_, _| {});
             });
 
             view.update(&mut app, |_, ctx| {
                 let _ = ctx.spawn(async {}, |_, _, _| {});
-                let _ = ctx.spawn_local(async {}, |_, _, _| {});
-                
-                let _ = ctx.spawn_stream_local(smol::stream::iter(vec![1, 2, 3]), |_, _, _| {});
+                let _ = ctx.spawn(async {}, |_, _, _| {});
+
+                let _ = ctx.spawn_stream(smol::stream::iter(vec![1, 2, 3]), |_, _, _| {}, |_, _| {});
             });
 
-            assert!(!app.0.borrow().task_callbacks.is_empty());
+            assert!(!app.0.borrow().future_handlers.is_empty());
             app.finish_pending_tasks().await;
 
-            assert!(app.0.borrow().task_callbacks.is_empty());
+            assert!(app.0.borrow().future_handlers.is_empty());
             app.finish_pending_tasks().await; // não bloquear caso não tenha tarefas
         });
     }
