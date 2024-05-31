@@ -7,16 +7,15 @@ pub use point::*;
 pub use text::*;
 
 use crate::{
-    app::{self as app, AppContext, ModelContext},
     operation_queue::{self, OperationQueue},
     sum_tree::{self, Cursor, FilterCursor, SeekBias, SumTree},
-    time,
+    time::{self, ReplicaId},
     util::RandomCharIter,
-    worktree::FileHandle,
-    ReplicaId
+    worktree::FileHandle
 };
 
 use anyhow::{anyhow, Result};
+use gpui::{AppContext, Entity, ModelContext};
 use lazy_static::lazy_static;
 use rand::prelude::*;
 
@@ -451,12 +450,12 @@ impl Buffer {
     }
 
     pub fn simulate_typing<T: Rng>(&mut self, rng: &mut T) {
-        let end = rng.gen_range(0, self.len() + 1);
-        let start = rng.gen_range(0, end + 1);
+        let end = rng.gen_range(0..self.len() + 1);
+        let start = rng.gen_range(0..end + 1);
 
         let mut range = start..end;
 
-        let new_text_len = rng.gen_range(0, 100);
+        let new_text_len = rng.gen_range(0..100);
         let new_text: String = RandomCharIter::new(&mut *rng).take(new_text_len).collect();
 
         for char in new_text.chars() {
@@ -485,13 +484,13 @@ impl Buffer {
                 break;
             }
 
-            let end = rng.gen_range(last_end, self.len() + 1);
-            let start = rng.gen_range(last_end, end + 1);
+            let end = rng.gen_range(last_end..self.len() + 1);
+            let start = rng.gen_range(last_end..end + 1);
 
             old_ranges.push(start..end);
         }
 
-        let new_text_len = rng.gen_range(0, 10);
+        let new_text_len = rng.gen_range(0..10);
 
         let new_text: String = RandomCharIter::new(&mut *rng).take(new_text_len).collect();
 
@@ -1571,7 +1570,7 @@ pub enum Event {
     Edited(Vec<Edit>)
 }
 
-impl app::Entity for Buffer {
+impl Entity for Buffer {
     type Event = Event;
 }
 
@@ -2142,7 +2141,7 @@ mod tests {
 
     #[test]
     fn test_edit_events() {
-        use crate::app::App;
+        use gpui::App;
         use std::{cell::RefCell, rc::Rc};
 
         let mut app = App::new().unwrap();
@@ -2201,7 +2200,7 @@ mod tests {
 
             let mut rng = &mut StdRng::seed_from_u64(seed);
 
-            let reference_string_len = rng.gen_range(0, 3);
+            let reference_string_len = rng.gen_range(0..3);
             let mut reference_string = RandomCharIter::new(&mut rng).take(reference_string_len).collect::<String>();
 
             let mut buffer = Buffer::new(0, reference_string.as_str());
@@ -2237,8 +2236,8 @@ mod tests {
                 }
 
                 for _ in 0..5 {
-                    let end = rng.gen_range(0, buffer.len() + 1);
-                    let start = rng.gen_range(0, end + 1);
+                    let end = rng.gen_range(0..buffer.len() + 1);
+                    let start = rng.gen_range(0..end + 1);
 
                     let line_lengths = line_lengths_in_range(&buffer, start..end);
                     let (longest_column, longest_rows) = line_lengths.iter().next_back().unwrap();
@@ -2420,12 +2419,14 @@ mod tests {
     //     assert_eq!(text.point_for_offset(2)?, Point { row: 0, column: 2 });
     //     assert_eq!(text.point_for_offset(3)?, Point { row: 0, column: 3 });
     //     assert!(text.point_for_offset(4).is_err());
+    //
     //     Ok(())
     // }
     //
     // #[test]
     // fn test_offset_for_point() -> Result<()> {
     //     let text = Text::from("abc\ndefgh");
+    //
     //     assert_eq!(text.offset_for_point(Point { row: 0, column: 0 })?, 0);
     //     assert_eq!(text.offset_for_point(Point { row: 0, column: 1 })?, 1);
     //     assert_eq!(text.offset_for_point(Point { row: 0, column: 2 })?, 2);
@@ -2437,11 +2438,13 @@ mod tests {
     //     assert!(text.offset_for_point(Point { row: 1, column: 6 }).is_err());
     //
     //     let text = Text::from("abc");
+    //
     //     assert_eq!(text.offset_for_point(Point { row: 0, column: 0 })?, 0);
     //     assert_eq!(text.offset_for_point(Point { row: 0, column: 1 })?, 1);
     //     assert_eq!(text.offset_for_point(Point { row: 0, column: 2 })?, 2);
     //     assert_eq!(text.offset_for_point(Point { row: 0, column: 3 })?, 3);
     //     assert!(text.offset_for_point(Point { row: 0, column: 4 }).is_err());
+    //
     //     Ok(())
     // }
     //
@@ -2449,6 +2452,7 @@ mod tests {
     // fn test_longest_row_in_range() -> Result<()> {
     //     for seed in 0..100 {
     //         println!("{:?}", seed);
+    //
     //         let mut rng = &mut StdRng::seed_from_u64(seed);
     //         let string_len = rng.gen_range(1, 10);
     //         let string = RandomCharIter(&mut rng)
@@ -2464,6 +2468,7 @@ mod tests {
     //             let mut cur_row_len = 0;
     //             let mut expected_longest_row = cur_row;
     //             let mut expected_longest_row_len = cur_row_len;
+    //
     //             for ch in string[start..end].chars() {
     //                 if ch == '\n' {
     //                     if cur_row_len > expected_longest_row_len {
@@ -2728,7 +2733,7 @@ mod tests {
 
     #[test]
     fn test_random_concurrent_edits() {
-        use crate::tests::Network;
+        use crate::test::Network;
 
         const PEERS: usize = 3;
 
@@ -2736,7 +2741,7 @@ mod tests {
             println!("{:?}", seed);
             let mut rng = &mut StdRng::seed_from_u64(seed);
 
-            let base_text_len = rng.gen_range(0, 10);
+            let base_text_len = rng.gen_range(0..10);
             let base_text = RandomCharIter::new(&mut rng).take(base_text_len).collect::<String>();
 
             let mut replica_ids = Vec::new();
@@ -2755,7 +2760,7 @@ mod tests {
             let mut mutation_count = 10;
 
             loop {
-                let replica_index = rng.gen_range(0, PEERS);
+                let replica_index = rng.gen_range(0..PEERS);
                 let replica_id = replica_ids[replica_index];
 
                 let buffer = &mut buffers[replica_index];
@@ -2822,10 +2827,10 @@ mod tests {
                 let mut ranges = Vec::new();
 
                 for _ in 0..5 {
-                    let start = rng.gen_range(0, self.len() + 1);
+                    let start = rng.gen_range(0..self.len() + 1);
                     let start_point = self.point_for_offset(start).unwrap();
 
-                    let end = rng.gen_range(0, self.len() + 1);
+                    let end = rng.gen_range(0..self.len() + 1);
                     let end_point = self.point_for_offset(end).unwrap();
 
                     ranges.push(start_point..end_point);

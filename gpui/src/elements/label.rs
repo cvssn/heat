@@ -3,6 +3,7 @@ use crate::{
 
     fonts::{FamilyId, Properties},
     geometry::vector::{vec2f, Vector2F},
+    text_layout::Line,
 
     AfterLayoutContext,
     AppContext,

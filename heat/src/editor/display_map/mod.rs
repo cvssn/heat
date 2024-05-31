@@ -1,11 +1,10 @@
 mod fold_map;
 
-use super::ToPoint;
-use super::{buffer, Anchor, AnchorRangeExt, Buffer, Edit, Point, TextSummary, ToOffset};
-use crate::app::{AppContext, Entity, ModelContext, ModelHandle};
+use super::{buffer, Anchor, AnchorRangeExt, Buffer, Edit, Point, TextSummary, ToOffset, ToPoint};
 use anyhow::Result;
 pub use fold_map::BufferRows;
 use fold_map::FoldMap;
+use gpui::{AppContext, Entity, ModelContext, ModelHandle};
 use std::ops::Range;
 
 #[derive(Copy, Clone)]
@@ -322,9 +321,8 @@ pub fn collapse_tabs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::App;
-    use crate::test_utils::*;
-    use anyhow::Error;
+    use crate::test::*;
+    use gpui::App;
 
     #[test]
     fn test_chars_at() -> Result<()> {

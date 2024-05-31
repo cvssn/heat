@@ -411,7 +411,7 @@ mod tests {
 
             let rng = &mut StdRng::seed_from_u64(seed);
 
-            let len = rng.gen_range(0, 50);
+            let len = rng.gen_range(0..50);
             let mut string = String::new();
 
             for _ in 0..len {
@@ -425,8 +425,8 @@ mod tests {
             let text = Text::from(string.clone());
 
             for _ in 0..10 {
-                let start = rng.gen_range(0, text.len() + 1);
-                let end = rng.gen_range(start, text.len() + 2);
+                let start = rng.gen_range(0..text.len() + 1);
+                let end = rng.gen_range(start..text.len() + 2);
 
                 let string_slice = string
                     .chars()
@@ -465,7 +465,7 @@ mod tests {
                 assert!(rightmost_points.contains(&text_slice.rightmost_point()));
 
                 for _ in 0..10 {
-                    let offset = rng.gen_range(0, string_slice.chars().count() + 1);
+                    let offset = rng.gen_range(0..string_slice.chars().count() + 1);
                     let point = lines(&string_slice.chars().take(offset).collect::<String>());
                     
                     assert_eq!(text_slice.point_for_offset(offset), point);
