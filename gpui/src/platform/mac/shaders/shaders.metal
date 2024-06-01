@@ -26,9 +26,9 @@ vertex QuadFragmentInput quad_vertex(
 
     GPUIQuad quad = quads[quad_id];
 
-    float2 position = (unit_vertex * quad.size + quad.origin) / (uniforms->viewport_size / 2.0);
-
-    float4 device_position = float4(position * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
+    float2 position = unit_vertex * quad.size + quad.origin;
+    
+    float4 device_position = float4(position / uniforms->viewport_size * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
 
     return QuadFragmentInput {
         device_position,
