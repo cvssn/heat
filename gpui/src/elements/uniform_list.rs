@@ -41,32 +41,32 @@ impl UniformListState {
     }
 }
 
-pub struct UniformList<F, G>
+pub struct UniformList<F>
 where
-    F: Fn(Range<usize>, &AppContext) -> G,
-    G: Iterator<Item = Box<dyn Element>>
+    F: Fn(Range<usize>, &mut Vec<Box<dyn Element>>, &AppContext)
 {
     state: UniformListState,
     item_count: usize,
-    build_items: F,
+    append_items: F,
     scroll_max: Option<f32>,
     items: Vec<Box<dyn Element>>,
+
     origin: Option<Vector2F>,
     size: Option<Vector2F>
 }
 
-impl<F, G> UniformList<F, G>
+impl<F> UniformList<F>
 where
-    F: Fn(Range<usize>, &AppContext) -> G,
-    G: Iterator<Item = Box<dyn Element>>
+    F: Fn(Range<usize>, &mut Vec<Box<dyn Element>>, &AppContext)
 {
     pub fn new(state: UniformListState, item_count: usize, build_items: F) -> Self {
         Self {
             state,
             item_count,
-            build_items,
+            append_items: build_items,
             scroll_max: None,
             items: Default::default(),
+
             origin: None,
             size: None
         }
@@ -129,10 +129,9 @@ where
     }
 }
 
-impl<F, G> Element for UniformList<F, G>
+impl<F> Element for UniformList<F>
 where
-    F: Fn(Range<usize>, &AppContext) -> G,
-    G: Iterator<Item = Box<dyn Element>>
+    F: Fn(Range<usize>, &mut Vec<Box<dyn Element>>, &AppContext)
 {
     fn layout(
         &mut self,
@@ -150,9 +149,10 @@ where
         let mut size = constraint.max;
         let mut item_constraint = SizeConstraint::new(vec2f(size.x(), 0.0), vec2f(size.x(), f32::INFINITY));
 
-        let first_item = (self.build_items)(0..1, app).next();
+        self.items.clear();
+        (self.append_items)(0..1, &mut self.items, app);
 
-        if let Some(mut first_item) = first_item {
+        if let Some(first_item) = self.items.first_mut() {
             let mut item_size = first_item.layout(item_constraint, ctx, app);
             
             item_size.set_x(size.x());
@@ -176,7 +176,7 @@ where
             );
 
             self.items.clear();
-            self.items.extend((self.build_items)(start..end, app));
+            (self.append_items)(start..end, &mut self.items, app);
 
             self.scroll_max = Some(item_size.y() * self.item_count as f32 - size.y());
 

@@ -4,8 +4,8 @@ use log::LevelFilter;
 use simplelog::SimpleLogger;
 use std::{fs, path::PathBuf};
 
-use zed::{
-    assets, editor, settings,
+use heat::{
+    assets, editor, file_finder, settings,
 
     workspace::{self, OpenParams}
 };
@@ -23,6 +23,7 @@ fn main() {
             .on_finish_launching(move || {
                 workspace::init(&mut app);
                 editor::init(&mut app);
+                file_finder::init(&mut app);
 
                 if stdout_is_a_pty() {
                     app.platform().activate(true);

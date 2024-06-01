@@ -1,10 +1,9 @@
 use super::{pane, Pane, PaneGroup, SplitDirection, Workspace};
 use crate::{settings::Settings, watch};
-use gpui::{color::rgbu, ChildView};
 
 use gpui::{
-    elements::*, AnyViewHandle, AppContext, Entity, ModelHandle, MutableAppContext, View,
-    ViewContext, ViewHandle
+    color::rgbu, elements::*, AnyViewHandle, AppContext, Entity, ModelHandle, MutableAppContext,
+    View, ViewContext, ViewHandle
 };
 
 use log::{error, info};
