@@ -15,16 +15,19 @@ use cocoa::{
 
     base::{id, nil},
 
-    foundation::{NSAutoreleasePool, NSSize, NSString}
+    foundation::{NSAutoreleasePool, NSSize, NSString},
+    quartzcore::AutoresizingMask
 };
 
 use ctor::ctor;
+use foreign_types::ForeignType as _;
+use metal::{MTLClearColor, MTLLoadAction, MTLStoreAction};
 
 use objc::{
     class,
     declare::ClassDecl,
     msg_send,
-    runtime::{Class, Object, Sel, BOOL, NO, YES},
+    runtime::{Class, Object, Protocol, Sel, BOOL, NO, YES},
     sel, sel_impl
 };
 
@@ -39,13 +42,12 @@ use std::{
     time::{Duration, Instant}
 };
 
-use super::geometry::RectFExt;
+use super::{geometry::RectFExt, renderer::Renderer};
 
 const WINDOW_STATE_IVAR: &'static str = "windowState";
 
 static mut WINDOW_CLASS: *const Class = ptr::null();
 static mut VIEW_CLASS: *const Class = ptr::null();
-static mut DELEGATE_CLASS: *const Class = ptr::null();
 
 #[ctor]
 unsafe fn build_classes() {
@@ -54,7 +56,7 @@ unsafe fn build_classes() {
 
         decl.add_ivar::<*mut c_void>(WINDOW_STATE_IVAR);
         decl.add_method(sel!(dealloc), dealloc_window as extern "C" fn(&Object, Sel));
-
+        
         decl.add_method(
             sel!(canBecomeMainWindow),
 
@@ -80,6 +82,7 @@ unsafe fn build_classes() {
         let mut decl = ClassDecl::new("GPUIView", class!(NSView)).unwrap();
 
         decl.add_ivar::<*mut c_void>(WINDOW_STATE_IVAR);
+
         decl.add_method(sel!(dealloc), dealloc_view as extern "C" fn(&Object, Sel));
 
         decl.add_method(
@@ -112,24 +115,30 @@ unsafe fn build_classes() {
             handle_view_event as extern "C" fn(&Object, Sel, id)
         );
 
-        decl.register()
-    };
-
-    DELEGATE_CLASS = {
-        let mut decl = ClassDecl::new("GPUIWindowDelegate", class!(NSObject)).unwrap();
-
+        decl.add_protocol(Protocol::get("CALayerDelegate").unwrap());
+        
         decl.add_method(
-            sel!(dealloc),
+            sel!(makeBackingLayer),
 
-            dealloc_delegate as extern "C" fn(&Object, Sel)
+            make_backing_layer as extern "C" fn(&Object, Sel) -> id
         );
 
-        decl.add_ivar::<*mut c_void>(WINDOW_STATE_IVAR);
+        decl.add_method(
+            sel!(viewDidChangeBackingProperties),
+
+            view_did_change_backing_properties as extern "C" fn(&Object, Sel)
+        );
 
         decl.add_method(
-            sel!(windowDidResize:),
+            sel!(setFrameSize:),
 
-            window_did_resize as extern "C" fn(&Object, Sel, id)
+            set_frame_size as extern "C" fn(&Object, Sel, NSSize)
+        );
+
+        decl.add_method(
+            sel!(displayLayer:),
+
+            display_layer as extern "C" fn(&Object, Sel, id)
         );
 
         decl.register()
@@ -145,7 +154,19 @@ struct WindowState {
     resize_callback: RefCell<Option<Box<dyn FnMut(Vector2F, f32)>>>,
 
     synthetic_drag_counter: Cell<usize>,
-    executor: Rc<executor::Foreground>
+    executor: Rc<executor::Foreground>,
+
+    scene_to_render: RefCell<Option<Scene>>,
+    renderer: RefCell<Renderer>,
+    command_queue: metal::CommandQueue,
+    device: metal::Device,
+    layer: id
+}
+
+pub struct RenderContext<'a> {
+    pub drawable_size: Vector2F,
+    pub device: &'a metal::Device,
+    pub command_encoder: &'a metal::RenderCommandEncoderRef
 }
 
 impl Window {
@@ -153,6 +174,8 @@ impl Window {
         options: platform::WindowOptions,
         executor: Rc<executor::Foreground>
     ) -> Result<Self> {
+        const PIXEL_FORMAT: metal::MTLPixelFormat = metal::MTLPixelFormat::BGRA8Unorm;
+
         unsafe {
             let pool = NSAutoreleasePool::new(nil);
 
@@ -176,14 +199,21 @@ impl Window {
                 return Err(anyhow!("janela retornou nulo do inicializador"));
             }
 
-            let delegate: id = msg_send![DELEGATE_CLASS, alloc];
-            let delegate = delegate.init();
+            let device = metal::Device::system_default().ok_or_else(|| anyhow!("não foi possível encontrar o dispositivo de metal padrão"))?;
 
-            if native_window == nil {
-                return Err(anyhow!("delegado retornou nulo do inicializador"));
-            }
+            let layer: id = msg_send![class!(CAMetalLayer), layer];
 
-            native_window.setDelegate_(delegate);
+            let _: () = msg_send![layer, setDevice: device.as_ptr()];
+            let _: () = msg_send![layer, setPixelFormat: PIXEL_FORMAT];
+            let _: () = msg_send![layer, setAllowsNextDrawableTimeout: NO];
+            let _: () = msg_send![layer, setNeedsDisplayOnBoundsChange: YES];
+            let _: () = msg_send![layer, setPresentsWithTransaction: YES];
+            
+            let _: () = msg_send![
+                layer,
+                setAutoresizingMask: AutoresizingMask::WIDTH_SIZABLE
+                    | AutoresizingMask::HEIGHT_SIZABLE
+            ];
 
             let native_view: id = msg_send![VIEW_CLASS, alloc];
             let native_view = NSView::init(native_view);
@@ -200,7 +230,14 @@ impl Window {
 
                 synthetic_drag_counter: Cell::new(0),
 
-                executor
+                executor,
+
+                scene_to_render: Default::default(),
+                renderer: RefCell::new(Renderer::new(&device, PIXEL_FORMAT)?),
+                command_queue: device.new_command_queue(),
+
+                device,
+                layer
             }));
 
             (*native_window).set_ivar(
@@ -210,12 +247,6 @@ impl Window {
             );
 
             (*native_view).set_ivar(
-                WINDOW_STATE_IVAR,
-
-                Rc::into_raw(window.0.clone()) as *const c_void
-            );
-
-            (*delegate).set_ivar(
                 WINDOW_STATE_IVAR,
 
                 Rc::into_raw(window.0.clone()) as *const c_void
@@ -283,7 +314,11 @@ impl platform::Window for Window {
     }
 
     fn render_scene(&self, scene: Scene) {
-        log::info!("renderizar cena");
+        *self.0.scene_to_render.borrow_mut() = Some(scene);
+
+        unsafe {
+            let _: () = msg_send![self.0.native_window.contentView(), setNeedsDisplay: YES];
+        }
     }
 }
 
@@ -348,16 +383,6 @@ extern "C" fn dealloc_view(this: &Object, _: Sel) {
     }
 }
 
-extern "C" fn dealloc_delegate(this: &Object, _: Sel) {
-    unsafe {
-        let raw: *mut c_void = *this.get_ivar(WINDOW_STATE_IVAR);
-
-        Rc::from_raw(raw as *mut WindowState);
-
-        let () = msg_send![super(this, class!(NSObject)), dealloc];
-    }
-}
-
 extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
     let window = unsafe { window_state(this) };
 
@@ -388,17 +413,100 @@ extern "C" fn send_event(this: &Object, _: Sel, native_event: id) {
     }
 }
 
-extern "C" fn window_did_resize(this: &Object, _: Sel, _: id) {
+extern "C" fn make_backing_layer(this: &Object, _: Sel) -> id {
     let window = unsafe { window_state(this) };
 
-    let size = window.size();
+    window.layer
+}
 
-    let scale_factor = window.scale_factor();
+extern "C" fn view_did_change_backing_properties(this: &Object, _: Sel) {
+    let window;
+
+    unsafe {
+        window = window_state(this);
+
+        let _: () = msg_send![window.layer, setContentsScale: window.scale_factor() as f64];
+    }
 
     if let Some(callback) = window.resize_callback.borrow_mut().as_mut() {
+        let size = window.size();
+        let scale_factor = window.scale_factor();
+
         callback(size, scale_factor);
+    };
+}
+
+extern "C" fn set_frame_size(this: &Object, _: Sel, size: NSSize) {
+    let window;
+
+    unsafe {
+        window = window_state(this);
+
+        if window.size() == vec2f(size.width as f32, size.height as f32) {
+            return;
+        }
+
+        let _: () = msg_send![super(this, class!(NSView)), setFrameSize: size];
+
+        let scale_factor = window.scale_factor() as f64;
+
+        let drawable_size: NSSize = NSSize {
+            width: size.width * scale_factor,
+            height: size.height * scale_factor
+        };
+
+        let _: () = msg_send![window.layer, setDrawableSize: drawable_size];
     }
-    
+
+    if let Some(callback) = window.resize_callback.borrow_mut().as_mut() {
+        let size = window.size();
+        let scale_factor = window.scale_factor();
+
+        callback(size, scale_factor);
+    };
+}
+
+extern "C" fn display_layer(this: &Object, _: Sel, _: id) {
+    unsafe {
+        let window = window_state(this);
+
+        if let Some(scene) = window.scene_to_render.borrow_mut().take() {
+            let drawable: &metal::MetalDrawableRef = msg_send![window.layer, nextDrawable];
+
+            let render_pass_descriptor = metal::RenderPassDescriptor::new();
+            
+            let color_attachment = render_pass_descriptor
+                .color_attachments()
+                .object_at(0)
+                .unwrap();
+
+            color_attachment.set_texture(Some(drawable.texture()));
+            
+            color_attachment.set_load_action(MTLLoadAction::Clear);
+            color_attachment.set_store_action(MTLStoreAction::Store);
+        
+            color_attachment.set_clear_color(MTLClearColor::new(0., 0., 0., 1.));
+
+            let command_buffer = window.command_queue.new_command_buffer();
+            let command_encoder = command_buffer.new_render_command_encoder(render_pass_descriptor);
+
+            window.renderer.borrow_mut().render(
+                &scene,
+
+                RenderContext {
+                    drawable_size: window.size() * window.scale_factor(),
+                    device: &window.device,
+                    command_encoder
+                },
+            );
+
+            command_encoder.end_encoding();
+            command_buffer.commit();
+            command_buffer.wait_until_completed();
+            drawable.present();
+        };
+    }
+
     drop(window);
 }
 
