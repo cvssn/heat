@@ -1425,7 +1425,7 @@ mod tests {
 
     #[test]
     fn test_selection_with_mouse() {
-        App::test(|mut app| async move {
+        App::test((), |mut app| async move {
             let buffer = app.add_model(|_| Buffer::new(0, "aaaaaa\nbbbbbb\ncccccc\ndddddd\n"));
 
             let settings = settings::channel(&FontCache::new()).unwrap().1;
@@ -1543,21 +1543,22 @@ mod tests {
         let font_cache = FontCache::new();
         let layout_cache = TextLayoutCache::new();
 
-        let mut app = App::new().unwrap();
-        let buffer = app.add_model(|_| Buffer::new(0, sample_text(6, 6)));
+        App::test((), |mut app| async move {
+            let buffer = app.add_model(|_| Buffer::new(0, sample_text(6, 6)));
 
-        let settings = settings::channel(&font_cache).unwrap().1;
-        let (_, view) = app.add_window(|ctx| BufferView::for_buffer(buffer.clone(), settings, ctx));
+            let settings = settings::channel(&font_cache).unwrap().1;
+            let (_, view) = app.add_window(|ctx| BufferView::for_buffer(buffer.clone(), settings, ctx));
 
-        view.read(&app, |view, app| {
-            let layouts = view.layout_line_numbers(1000.0, &font_cache, &layout_cache, app)?;
+            view.read(&app, |view, app| {
+                let layouts = view.layout_line_numbers(1000.0, &font_cache, &layout_cache, app)?;
 
-            assert_eq!(layouts.len(), 6);
+                assert_eq!(layouts.len(), 6);
 
-            Result::<()>::Ok(())
-        })?;
+                Result::<()>::Ok(())
+            })?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     #[test]

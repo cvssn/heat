@@ -1,8 +1,8 @@
 use crate::{
     executor,
-
     geometry::vector::Vector2F,
-    platform::{self, Event}
+    platform::{self, Event},
+    Scene
 };
 
 use anyhow::{anyhow, Result};
@@ -28,6 +28,7 @@ use objc::{
     sel, sel_impl
 };
 
+use pathfinder_geometry::vector::vec2f;
 use smol::Timer;
 
 use std::{
@@ -141,10 +142,9 @@ struct WindowState {
     native_window: id,
 
     event_callback: RefCell<Option<Box<dyn FnMut(Event) -> bool>>>,
-    resize_callback: RefCell<Option<Box<dyn FnMut(NSSize, f64)>>>,
+    resize_callback: RefCell<Option<Box<dyn FnMut(Vector2F, f32)>>>,
 
     synthetic_drag_counter: Cell<usize>,
-
     executor: Rc<executor::Foreground>
 }
 
@@ -168,21 +168,19 @@ impl Window {
             let native_window = native_window.initWithContentRect_styleMask_backing_defer_(
                 frame,
                 style_mask,
-
                 NSBackingStoreBuffered,
-
                 NO
             );
 
             if native_window == nil {
-                return Err(anyhow!("a janela retornou nulo (nil) do inicializador"));
+                return Err(anyhow!("janela retornou nulo do inicializador"));
             }
 
             let delegate: id = msg_send![DELEGATE_CLASS, alloc];
             let delegate = delegate.init();
 
             if native_window == nil {
-                return Err(anyhow!("delegado retornou nulo (nil) do inicializador"));
+                return Err(anyhow!("delegado retornou nulo do inicializador"));
             }
 
             native_window.setDelegate_(delegate);
@@ -191,7 +189,7 @@ impl Window {
             let native_view = NSView::init(native_view);
 
             if native_view == nil {
-                return Err(anyhow!("view retorno nulo (nil) do inicializador"));
+                return Err(anyhow!("visualização retornou nulo do inicializador"));
             }
 
             let window = Self(Rc::new(WindowState {
@@ -207,16 +205,19 @@ impl Window {
 
             (*native_window).set_ivar(
                 WINDOW_STATE_IVAR,
+
                 Rc::into_raw(window.0.clone()) as *const c_void
             );
 
             (*native_view).set_ivar(
                 WINDOW_STATE_IVAR,
+
                 Rc::into_raw(window.0.clone()) as *const c_void
             );
 
             (*delegate).set_ivar(
                 WINDOW_STATE_IVAR,
+
                 Rc::into_raw(window.0.clone()) as *const c_void
             );
 
@@ -229,14 +230,6 @@ impl Window {
             native_view.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable);
             native_view.setWantsBestResolutionOpenGLSurface_(YES);
 
-            // da crate do winit: no mojave, as visualizações tornam-se automaticamente apoiadas
-            // em camadas logo após serem adicionadas em um native_window. alterar o suporte de
-            // camada de uma visualização quebra a associação entre a visualização e seu contexto
-            // opengl associado
-            //
-            // para trabalhar com isso,
-            // ao se fazer explicitamente o backup da camada de visualização antecipadamente, para
-            // que o appkit não faça isso sozinho e quebre a associação com seu contexto
             native_view.setWantsLayer(YES);
 
             native_view.layer().setBackgroundColor_(
@@ -261,19 +254,173 @@ impl Window {
         }
     }
 
-    pub fn size(&self) -> NSSize {
-        self.0.size()
-    }
-
-    pub fn backing_scale_factor(&self) -> f64 {
-        self.0.backing_scale_factor()
-    }
-
     pub fn on_event<F: 'static + FnMut(Event) -> bool>(&mut self, callback: F) {
         *self.0.event_callback.borrow_mut() = Some(Box::new(callback));
     }
 
-    pub fn on_resize<F: 'static + FnMut(NSSize, f64)>(&mut self, callback: F) {
+    pub fn on_resize<F: 'static + FnMut(Vector2F, f32)>(&mut self, callback: F) {
         *self.0.resize_callback.borrow_mut() = Some(Box::new(callback));
     }
+}
+
+impl Drop for Window {
+    fn drop(&mut self) {
+        unsafe {
+            self.0.native_window.close();
+
+            let _: () = msg_send![self.0.native_window.delegate(), release];
+        }
+    }
+}
+
+impl platform::Window for Window {
+    fn size(&self) -> Vector2F {
+        self.0.size()
+    }
+
+    fn scale_factor(&self) -> f32 {
+        self.0.scale_factor()
+    }
+
+    fn render_scene(&self, scene: Scene) {
+        log::info!("renderizar cena");
+    }
+}
+
+impl WindowState {
+    fn size(&self) -> Vector2F {
+        let NSSize { width, height, .. } = unsafe { NSView::frame(self.native_window.contentView()) }.size;
+
+        vec2f(width as f32, height as f32)
+    }
+
+    fn scale_factor(&self) -> f32 {
+        unsafe {
+            let screen: id = msg_send![self.native_window, screen];
+
+            NSScreen::backingScaleFactor(screen) as f32
+        }
+    }
+
+    fn next_synthetic_drag_id(&self) -> usize {
+        let next_id = self.synthetic_drag_counter.get() + 1;
+
+        self.synthetic_drag_counter.set(next_id);
+
+        next_id
+    }
+}
+
+unsafe fn window_state(object: &Object) -> Rc<WindowState> {
+    let raw: *mut c_void = *object.get_ivar(WINDOW_STATE_IVAR);
+
+    let rc1 = Rc::from_raw(raw as *mut WindowState);
+    let rc2 = rc1.clone();
+
+    mem::forget(rc1);
+
+    rc2
+}
+
+unsafe fn drop_window_state(object: &Object) {
+    let raw: *mut c_void = *object.get_ivar(WINDOW_STATE_IVAR);
+
+    Rc::from_raw(raw as *mut WindowState);
+}
+
+extern "C" fn yes(_: &Object, _: Sel) -> BOOL {
+    YES
+}
+
+extern "C" fn dealloc_window(this: &Object, _: Sel) {
+    unsafe {
+        drop_window_state(this);
+
+        let () = msg_send![super(this, class!(NSWindow)), dealloc];
+    }
+}
+
+extern "C" fn dealloc_view(this: &Object, _: Sel) {
+    unsafe {
+        drop_window_state(this);
+
+        let () = msg_send![super(this, class!(NSView)), dealloc];
+    }
+}
+
+extern "C" fn dealloc_delegate(this: &Object, _: Sel) {
+    unsafe {
+        let raw: *mut c_void = *this.get_ivar(WINDOW_STATE_IVAR);
+
+        Rc::from_raw(raw as *mut WindowState);
+
+        let () = msg_send![super(this, class!(NSObject)), dealloc];
+    }
+}
+
+extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
+    let window = unsafe { window_state(this) };
+
+    let event = unsafe { Event::from_native(native_event, Some(window.size().y())) };
+
+    if let Some(event) = event {
+        match event {
+            Event::LeftMouseDragged { position } => schedule_synthetic_drag(&window, position),
+
+            Event::LeftMouseUp { .. } => {
+                window.next_synthetic_drag_id();
+            }
+
+            _ => {}
+        }
+
+        if let Some(callback) = window.event_callback.borrow_mut().as_mut() {
+            if callback(event) {
+                return;
+            }
+        }
+    }
+}
+
+extern "C" fn send_event(this: &Object, _: Sel, native_event: id) {
+    unsafe {
+        let () = msg_send![super(this, class!(NSWindow)), sendEvent: native_event];
+    }
+}
+
+extern "C" fn window_did_resize(this: &Object, _: Sel, _: id) {
+    let window = unsafe { window_state(this) };
+
+    let size = window.size();
+
+    let scale_factor = window.scale_factor();
+
+    if let Some(callback) = window.resize_callback.borrow_mut().as_mut() {
+        callback(size, scale_factor);
+    }
+    
+    drop(window);
+}
+
+fn schedule_synthetic_drag(window_state: &Rc<WindowState>, position: Vector2F) {
+    let drag_id = window_state.next_synthetic_drag_id();
+    let weak_window_state = Rc::downgrade(window_state);
+
+    let instant = Instant::now() + Duration::from_millis(16);
+
+    window_state
+        .executor
+        .spawn(async move {
+            Timer::at(instant).await;
+
+            if let Some(window_state) = weak_window_state.upgrade() {
+                if window_state.synthetic_drag_counter.get() == drag_id {
+                    if let Some(callback) = window_state.event_callback.borrow_mut().as_mut() {
+                        schedule_synthetic_drag(&window_state, position);
+
+                        callback(Event::LeftMouseDragged { position });
+                    }
+                }
+            }
+        }).detach();
 }

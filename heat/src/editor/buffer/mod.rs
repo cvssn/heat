@@ -2144,53 +2144,54 @@ mod tests {
         use gpui::App;
         use std::{cell::RefCell, rc::Rc};
 
-        let mut app = App::new().unwrap();
+        let mut app = App::test((), |mut app| async move {
+            let buffer_1_events = Rc::new(RefCell::new(Vec::new()));
+            let buffer_2_events = Rc::new(RefCell::new(Vec::new()));
 
-        let buffer_1_events = Rc::new(RefCell::new(Vec::new()));
-        let buffer_2_events = Rc::new(RefCell::new(Vec::new()));
+            let buffer1 = app.add_model(|_| Buffer::new(0, "abcdef"));
+            let buffer2 = app.add_model(|_| Buffer::new(1, "abcdef"));
 
-        let buffer1 = app.add_model(|_| Buffer::new(0, "abcdef"));
-        let buffer2 = app.add_model(|_| Buffer::new(1, "abcdef"));
+            let ops = buffer1.update(&mut app, |buffer, ctx| {
+                let buffer_1_events = buffer_1_events.clone();
 
-        let ops = buffer1.update(&mut app, |buffer, ctx| {
-            let buffer_1_events = buffer_1_events.clone();
+                ctx.subscribe(&buffer1, move |_, event, _| {
+                    buffer_1_events.borrow_mut().push(event.clone())
+                });
 
-            ctx.subscribe(&buffer1, move |_, event, _| {
-                buffer_1_events.borrow_mut().push(event.clone())
+                let buffer_2_events = buffer_2_events.clone();
+
+                ctx.subscribe(&buffer2, move |_, event, _| {
+                    buffer_2_events.borrow_mut().push(event.clone())
+                });
+
+                buffer.edit(Some(2..4), "XYZ", Some(ctx)).unwrap()
             });
 
-            let buffer_2_events = buffer_2_events.clone();
-
-            ctx.subscribe(&buffer2, move |_, event, _| {
-                buffer_2_events.borrow_mut().push(event.clone())
+            buffer2.update(&mut app, |buffer, ctx| {
+                buffer.apply_ops(ops, Some(ctx)).unwrap();
             });
 
-            buffer.edit(Some(2..4), "XYZ", Some(ctx)).unwrap()
+            let buffer_1_events = buffer_1_events.borrow();
+
+            assert_eq!(
+                *buffer_1_events,
+                vec![Event::Edited(vec![Edit {
+                    old_range: 2..4,
+                    new_range: 2..5
+                }])]
+            );
+
+            let buffer_2_events = buffer_2_events.borrow();
+
+            assert_eq!(
+                *buffer_2_events,
+
+                vec![Event::Edited(vec![Edit {
+                    old_range: 2..4,
+                    new_range: 2..5
+                }])]
+            );
         });
-
-        buffer2.update(&mut app, |buffer, ctx| {
-            buffer.apply_ops(ops, Some(ctx)).unwrap();
-        });
-
-        let buffer_1_events = buffer_1_events.borrow();
-
-        assert_eq!(
-            *buffer_1_events,
-            vec![Event::Edited(vec![Edit {
-                old_range: 2..4,
-                new_range: 2..5
-            }])]
-        );
-
-        let buffer_2_events = buffer_2_events.borrow();
-
-        assert_eq!(
-            *buffer_2_events,
-            vec![Event::Edited(vec![Edit {
-                old_range: 2..4,
-                new_range: 2..5
-            }])]
-        );
     }
 
     #[test]
@@ -2201,7 +2202,10 @@ mod tests {
             let mut rng = &mut StdRng::seed_from_u64(seed);
 
             let reference_string_len = rng.gen_range(0..3);
-            let mut reference_string = RandomCharIter::new(&mut rng).take(reference_string_len).collect::<String>();
+
+            let mut reference_string = RandomCharIter::new(&mut rng)
+                .take(reference_string_len)
+                .collect::<String>();
 
             let mut buffer = Buffer::new(0, reference_string.as_str());
             let mut buffer_versions = Vec::new();
@@ -2262,7 +2266,8 @@ mod tests {
                 for Edit {
                     old_range,
                     new_range
-                } in buffer.edits_since(old_buffer.version.clone()) {
+                } in buffer.edits_since(old_buffer.version.clone())
+                {
                     let old_len = old_range.end - old_range.start;
                     let new_len = new_range.end - new_range.start;
 
@@ -2271,7 +2276,9 @@ mod tests {
                     old_buffer
                         .edit(
                             Some(old_start..old_start + old_len),
+
                             buffer.text_for_range(new_range).unwrap(),
+
                             None
                         ).unwrap();
 
@@ -2286,7 +2293,6 @@ mod tests {
     #[test]
     fn test_line_len() -> Result<()> {
         let mut buffer = Buffer::new(0, "");
-
         buffer.edit(vec![0..0], "abcd\nefg\nhij", None)?;
         buffer.edit(vec![12..12], "kl\nmno", None)?;
         buffer.edit(vec![18..18], "\npqrs\n", None)?;
@@ -2332,30 +2338,36 @@ mod tests {
     #[test]
     fn test_text_summary_for_range() {
         let buffer = Buffer::new(0, "ab\nefg\nhklm\nnopqrs\ntuvwxyz");
+
         let text = Text::from(buffer.text());
 
         assert_eq!(
             buffer.text_summary_for_range(1..3),
+            
             text.slice(1..3).summary()
         );
 
         assert_eq!(
             buffer.text_summary_for_range(1..12),
+
             text.slice(1..12).summary()
         );
 
         assert_eq!(
             buffer.text_summary_for_range(0..20),
+
             text.slice(0..20).summary()
         );
 
         assert_eq!(
             buffer.text_summary_for_range(0..22),
+
             text.slice(0..22).summary()
         );
 
         assert_eq!(
             buffer.text_summary_for_range(7..22),
+
             text.slice(7..22).summary()
         );
     }
@@ -2363,6 +2375,7 @@ mod tests {
     #[test]
     fn test_chars_at() -> Result<()> {
         let mut buffer = Buffer::new(0, "");
+
 
         buffer.edit(vec![0..0], "abcd\nefgh\nij", None)?;
         buffer.edit(vec![12..12], "kl\nmno", None)?;
@@ -2384,8 +2397,9 @@ mod tests {
         let chars = buffer.chars_at(Point::new(4, 0))?;
         assert_eq!(chars.collect::<String>(), "PQrs");
 
-        // teste regressivo:
+        // teste de regressão:
         let mut buffer = Buffer::new(0, "");
+
         buffer.edit(vec![0..0], "[workspace]\nmembers = [\n    \"xray_core\",\n    \"xray_server\",\n    \"xray_cli\",\n    \"xray_wasm\",\n]\n", None)?;
         buffer.edit(vec![60..60], "\n", None)?;
 

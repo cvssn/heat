@@ -1,22 +1,22 @@
 use crate::{app::{AppContext, MutableAppContext, WindowInvalidation}, elements::Element, fonts::FontCache, platform::Event, text_layout::TextLayoutCache, AssetCache, Scene};
 use pathfinder_geometry::vector::{vec2f, Vector2F};
-use std::{any::Any, collections::HashMap, rc::Rc};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 pub struct Presenter {
     window_id: usize,
     rendered_views: HashMap<usize, Box<dyn Element>>,
     parents: HashMap<usize, usize>,
-    font_cache: Rc<FontCache>,
+    font_cache: Arc<FontCache>,
     text_layout_cache: TextLayoutCache,
-    asset_cache: Rc<AssetCache>
+    asset_cache: Arc<AssetCache>
 }
 
 impl Presenter {
     pub fn new(
         window_id: usize,
 
-        font_cache: Rc<FontCache>,
-        asset_cache: Rc<AssetCache>,
+        font_cache: Arc<FontCache>,
+        asset_cache: Arc<AssetCache>,
 
         app: &MutableAppContext
     ) -> Self {
@@ -30,7 +30,7 @@ impl Presenter {
         }
     }
 
-    fn invalidate(&mut self, invalidation: WindowInvalidation, app: &AppContext) {
+    pub fn invalidate(&mut self, invalidation: WindowInvalidation, app: &AppContext) {
         for view_id in invalidation.updated {
             self.rendered_views
                 .insert(view_id, app.render_view(self.window_id, view_id).unwrap());
@@ -49,10 +49,10 @@ impl Presenter {
         scale_factor: f32,
         app: &mut MutableAppContext
     ) -> Scene {
-        self.layout(window_size, app.ctx());
+        self.layout(window_size, app.downgrade());
         self.after_layout(app);
 
-        let scene = self.paint(window_size, scale_factor, app.ctx());
+        let scene = self.paint(window_size, scale_factor, app.downgrade());
         
         self.text_layout_cache.finish_frame();
         

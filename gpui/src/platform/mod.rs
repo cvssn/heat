@@ -8,7 +8,12 @@ pub mod current {
     pub use super::mac::*;
 }
 
-use crate::{executor, geometry::rect::RectF};
+use crate::{
+    executor,
+    geometry::{rect::RectF, vector::Vector2F},
+    Scene
+};
+
 use anyhow::Result;
 use async_task::Runnable;
 pub use event::Event;
@@ -41,7 +46,12 @@ pub trait Dispatcher: Send + Sync {
     fn run_on_main_thread(&self, task: Runnable);
 }
 
-pub trait Window {}
+pub trait Window {
+    fn size(&self) -> Vector2F;
+    
+    fn scale_factor(&self) -> f32;
+    fn render_scene(&self, scene: Scene);
+}
 
 pub struct WindowOptions<'a> {
     pub bounds: RectF,
