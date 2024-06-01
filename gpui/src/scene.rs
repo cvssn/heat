@@ -1,4 +1,7 @@
+use core::f32;
+
 use crate::{color::ColorU, geometry::rect::RectF};
+
 pub struct Scene {
     scale_factor: f32,
     layers: Vec<Layer>,
@@ -39,6 +42,10 @@ impl Scene {
 
             active_layer_stack: vec![0]
         }
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
     }
 
     pub fn layers(&self) -> &[Layer] {
