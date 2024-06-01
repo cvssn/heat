@@ -48,7 +48,8 @@ pub trait Dispatcher: Send + Sync {
 }
 
 pub trait Window: WindowContext {
-    fn on_event(&mut self, callback: Box<dyn FnMut(Event, &mut dyn WindowContext)>);
+    fn on_event(&mut self, callback: Box<dyn FnMut(Event)>);
+    
     fn on_resize(&mut self, callback: Box<dyn FnMut(&mut dyn WindowContext)>);
 }
 

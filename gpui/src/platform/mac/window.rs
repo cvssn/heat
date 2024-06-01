@@ -16,7 +16,7 @@ use cocoa::{
 
     base::{id, nil},
 
-    foundation::{NSAutoreleasePool, NSSize, NSString},
+    foundation::{NSAutoreleasePool, NSInteger, NSSize, NSString},
     quartzcore::AutoresizingMask
 };
 
@@ -49,6 +49,9 @@ const WINDOW_STATE_IVAR: &'static str = "windowState";
 
 static mut WINDOW_CLASS: *const Class = ptr::null();
 static mut VIEW_CLASS: *const Class = ptr::null();
+
+#[allow(non_upper_case_globals)]
+const NSViewLayerContentsRedrawDuringViewResize: NSInteger = 2;
 
 #[ctor]
 unsafe fn build_classes() {
@@ -151,7 +154,7 @@ pub struct Window(Rc<RefCell<WindowState>>);
 struct WindowState {
     native_window: id,
 
-    event_callback: Option<Box<dyn FnMut(Event, &mut dyn platform::WindowContext)>>,
+    event_callback: Option<Box<dyn FnMut(Event)>>,
     resize_callback: Option<Box<dyn FnMut(&mut dyn platform::WindowContext)>>,
     
     synthetic_drag_counter: usize,
@@ -266,9 +269,11 @@ impl Window {
 
             native_view.setWantsLayer(YES);
 
-            native_view.layer().setBackgroundColor_(
-                msg_send![class!(NSColor), colorWithRed:1.0 green:0.0 blue:0.0 alpha:1.0]
-            );
+            let _: () = msg_send![
+                native_view,
+
+                setLayerContentsRedrawPolicy: NSViewLayerContentsRedrawDuringViewResize
+            ];
 
             native_window.setContentView_(native_view.autorelease());
             native_window.makeFirstResponder_(native_view);
@@ -298,7 +303,7 @@ impl Drop for Window {
 }
 
 impl platform::Window for Window {
-    fn on_event(&mut self, callback: Box<dyn FnMut(Event, &mut dyn platform::WindowContext)>) {
+    fn on_event(&mut self, callback: Box<dyn FnMut(Event)>) {
         self.0.as_ref().borrow_mut().event_callback = Some(callback);
     }
 
@@ -337,6 +342,8 @@ impl platform::WindowContext for WindowStat {
     }
 
     fn present_scene(&mut self, scene: Scene) {
+        log::info!("cena presente");
+
         self.scene_to_render = Some(scene);
 
         unsafe {
@@ -385,36 +392,38 @@ extern "C" fn dealloc_view(this: &Object, _: Sel) {
 extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
     let window_state = unsafe { get_window_state(this) };
     let weak_window_state = Rc::downgrade(&window_state);
-    let mut window_state = window_state.as_ref().borrow_mut();
+    let mut window_state_borrow = window_state.as_ref().borrow_mut();
 
-    let event = unsafe { Event::from_native(native_event, Some(window_state.size().y())) };
+    let event = unsafe { Event::from_native(native_event, Some(window_state_borrow.size().y())) };
 
     if let Some(event) = event {
         match event {
             Event::LeftMouseDragged { position } => {
-                window_state.synthetic_drag_counter += 1;
+                window_state_borrow.synthetic_drag_counter += 1;
 
-                window_state
+                window_state_borrow
                     .executor
                     .spawn(synthetic_drag(
                         weak_window_state,
-                        window_state.synthetic_drag_counter,
+                        window_state_borrow.synthetic_drag_counter,
                         position
                     ))
                     .detach();
             }
 
             Event::LeftMouseUp { .. } => {
-                window_state.synthetic_drag_counter += 1;
+                window_state_borrow.synthetic_drag_counter += 1;
             }
 
             _ => {}
         }
 
-        if let Some(mut callback) = window_state.event_callback.take() {
-            callback(event, &mut *window_state);
+        if let Some(mut callback) = window_state_borrow.event_callback.take() {
+            drop(window_state_borrow);
 
-            window_state.event_callback = Some(callback);
+            callback(event);
+
+            window_state.borrow_mut().event_callback = Some(callback);
         }
     }
 }
@@ -478,6 +487,8 @@ extern "C" fn set_frame_size(this: &Object, _: Sel, size: NSSize) {
 }
 
 extern "C" fn display_layer(this: &Object, _: Sel, _: id) {
+    log::info!("camada de exibição");
+
     unsafe {
         let window_state = get_window_state(this);
         let mut window_state = window_state.as_ref().borrow_mut();
@@ -541,7 +552,7 @@ async fn synthetic_drag(
 
             if window_state.synthetic_drag_counter == drag_id {
                 if let Some(mut callback) = window_state.event_callback.take() {
-                    callback(Event::LeftMouseDragged { position }, &mut *window_state);
+                    callback(Event::LeftMouseDragged { position });
 
                     window_state.event_callback = Some(callback);
                 }

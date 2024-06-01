@@ -152,6 +152,8 @@ impl WorkspaceView {
             self.modal = Some(modal.into());
         }
 
+        log::info!("alternar notificação modal");
+
         ctx.notify();
     }
 

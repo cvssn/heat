@@ -384,14 +384,10 @@ impl FileFinder {
     fn select(&mut self, entry: &(usize, usize), ctx: &mut ViewContext<Self>) {
         let (tree_id, entry_id) = *entry;
 
-        log::info!("item selecionado! {} {}", tree_id, entry_id);
-
         ctx.emit(Event::Selected(tree_id, entry_id));
     }
 
     fn spawn_search(&mut self, query: String, ctx: &mut ViewContext<Self>) {
-        log::info!("pesquisa de spawn!");
-
         let worktrees = self.worktrees(ctx.app());
         let search_id = util::post_inc(&mut self.search_count);
 

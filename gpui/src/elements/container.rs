@@ -177,7 +177,7 @@ impl Element for Container {
             background: self.background_color,
 
             border: self.border,
-            corder_radius: self.corner_radius
+            corner_radius: self.corner_radius
         });
 
         self.child.paint(origin, ctx, app);
