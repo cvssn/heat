@@ -1,18 +1,11 @@
 use fs::OpenOptions;
-
-use gpui::{
-    executor,
-    geometry::{rect::RectF, vector::vec2f},
-    platform::{current as platform, App as _, Runner as _, WindowOptions},
-    FontCache
-};
-
+use gpui::platform::{current as platform, Runner as _};
 use log::LevelFilter;
 use simplelog::SimpleLogger;
-use std::{fs, mem, rc::Rc, sync::Arc};
+use std::{fs, mem, path::PathBuf};
 
 use zed::{
-    editor, settings,
+    assets, editor, settings,
 
     workspace::{self, OpenParams}
 };
@@ -20,69 +13,36 @@ use zed::{
 fn main() {
     init_logger();
 
-    let platform = Arc::new(platform::app());
+    let app = gpui::App::new(assets::Assets).unwrap();
+    let (_, settings_rx) = settings::channel(&app.fonts()).unwrap();
 
-    let foreground = Rc::new(
-        executor::Foreground::platform(platform.dispatcher())
-            .expect("o foreground não conseguiu criar o executor")
-    );
+    {
+        let mut app = app.clone();
 
-    let font_cache = FontCache::new();
+        platform::runner()
+            .on_finish_launching(move || {
+                workspace::init(&mut app);
+                editor::init(&mut app);
 
-    let (settings_tx, settings_rx) = settings::channel(&font_cache).unwrap();
+                if stdout_is_a_pty() {
+                    app.platform().activate(true);
+                }
 
-    let mut app = gpui::App::new(As).unwrap();
+                let paths = collect_path_args();
 
-    platform::runner()
-        .on_finish_launching(move || {
-            log::info!("lançamento finalizado");
+                if !paths.is_empty() {
+                    app.dispatch_global_action(
+                        "workspace:open_paths",
 
-            workspace::init(&mut app);
-            editor::init(&mut app);
-            
-            if stdout_is_a_pty() {
-                platform.activate(true);
-            }
+                        OpenParams {
+                            paths,
 
-            let paths = std::env::args()
-                .skip(1)
-                .filter_map(|arg| match fs::canonicalize(arg) {
-                    Ok(path) => Some(path),
-
-                    Err(error) => {
-                        log::error!("erro ao analisar o argumento do caminho: {}", error);
-
-                        None
-                    }
-                }).collect::<Vec<_>>();
-
-            if !paths.is_empty() {
-                app.dispatch_global_action(
-                    "workspace:open_paths",
-
-                    OpenParams {
-                        paths,
-                        settings: settings_rx,
-                    }
-                );
-
-                mem::forget(app);
-            }
-
-            // let window = platform
-            //     .open_window(
-            //         WindowOptions {
-            //             bounds: RectF::new(vec2f(0., 0.), vec2f(1024., 768.)),
-            //             title: Some("Heat")
-            //         },
-
-            //         foreground
-            //     )
-                
-            //     .expect("erro ao abrir a janela");
-
-            // mem::forget(window); // vazar janela por agora para não fechar
-        }).run();
+                            settings: settings_rx
+                        }
+                    );
+                }
+            }).run();
+    }
 }
 
 fn init_logger() {
@@ -112,4 +72,18 @@ fn init_logger() {
 
 fn stdout_is_a_pty() -> bool {
     unsafe { libc::isatty(libc::STDOUT_FILENO as i32) != 0 }
+}
+
+fn collect_path_args() -> Vec<PathBuf> {
+    std::env::args()
+        .skip(1)
+        .filter_map(|arg| match fs::canonicalize(arg) {
+            Ok(path) => Some(path),
+
+            Err(error) => {
+                log::error!("erro ao analisar o argumento do caminho: {}", error);
+
+                None
+            }
+        }).collect::<Vec<_>>()
 }

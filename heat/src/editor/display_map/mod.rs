@@ -326,56 +326,56 @@ mod tests {
 
     #[test]
     fn test_chars_at() -> Result<()> {
-        let mut app = App::new()?;
+        App::test((), |mut app| async move {
+            let text = sample_text(6, 6);
 
-        let text = sample_text(6, 6);
+            let buffer = app.add_model(|_| Buffer::new(0, text));
+            let map = app.add_model(|ctx| DisplayMap::new(buffer.clone(), 4, ctx));
 
-        let buffer = app.add_model(|_| Buffer::new(0, text));
-        let map = app.add_model(|ctx| DisplayMap::new(buffer.clone(), 4, ctx));
+            buffer.update(&mut app, |buffer, ctx| {
+                buffer.edit(
+                    vec![
+                        Point::new(1, 0)..Point::new(1, 0),
+                        Point::new(1, 1)..Point::new(1, 1),
+                        Point::new(2, 1)..Point::new(2, 1)
+                    ],
 
-        buffer.update(&mut app, |buffer, ctx| {
-            buffer.edit(
-                vec![
-                    Point::new(1, 0)..Point::new(1, 0),
-                    Point::new(1, 1)..Point::new(1, 1),
-                    Point::new(2, 1)..Point::new(2, 1)
-                ],
+                    "\t",
 
-                "\t",
+                    Some(ctx)
+                )
+            })?;
 
-                Some(ctx)
-            )
-        })?;
+            map.read(&app, |map, ctx| {
+                assert_eq!(
+                    map.chars_at(DisplayPoint::new(1, 0), ctx)?
+                        .take(10)
+                        .collect::<String>(),
 
-        map.read(&app, |map, ctx| {
-            assert_eq!(
-                map.chars_at(DisplayPoint::new(1, 0), ctx)?
-                    .take(10)
-                    .collect::<String>(),
+                    "    b   bb"
+                );
 
-                "    b   bb"
-            );
+                assert_eq!(
+                    map.chars_at(DisplayPoint::new(1, 2), ctx)?
+                        .take(10)
+                        .collect::<String>(),
 
-            assert_eq!(
-                map.chars_at(DisplayPoint::new(1, 2), ctx)?
-                    .take(10)
-                    .collect::<String>(),
+                    "  b   bbbb"
+                );
 
-                "  b   bbbb"
-            );
+                assert_eq!(
+                    map.chars_at(DisplayPoint::new(1, 6), ctx)?
+                        .take(13)
+                        .collect::<String>(),
 
-            assert_eq!(
-                map.chars_at(DisplayPoint::new(1, 6), ctx)?
-                    .take(13)
-                    .collect::<String>(),
+                    "  bbbbb\nc   c"
+                );
 
-                "  bbbbb\nc   c"
-            );
+                Ok::<(), Error>(())
+            })?;
 
-            Ok::<(), Error>(())
-        })?;
-
-        Ok(())
+            Ok(())
+        })
     }
 
     #[test]
@@ -403,15 +403,16 @@ mod tests {
 
     #[test]
     fn test_max_point() -> Result<()> {
-        let mut app = App::new()?;
+        App::test((), |mut app| async move {
+            let buffer = app.add_model(|_| Buffer::new(0, "aaa\n\t\tbbb"));
+            
+            let map = app.add_model(|ctx| DisplayMap::new(buffer.clone(), 4, ctx));
 
-        let buffer = app.add_model(|_| Buffer::new(0, "aaa\n\t\tbbb"));
-        let map = app.add_model(|ctx| DisplayMap::new(buffer.clone(), 4, ctx));
+            map.read(&app, |map, app| {
+                assert_eq!(map.max_point(app), DisplayPoint::new(1, 11))
+            });
 
-        map.read(&app, |map, app| {
-            assert_eq!(map.max_point(app), DisplayPoint::new(1, 11))
-        });
-
-        Ok(())
+            Ok(())
+        })
     }
 }
